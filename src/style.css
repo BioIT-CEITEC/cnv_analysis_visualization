@@ -1,0 +1,32 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap');
+
+/* ── Brand color overrides ─────────────────────────────────────────────────── */
+@theme {
+  /* teal-50  → subtle teal bg (#21a8c2 at 4% opacity) */
+  --color-teal-50:  #21a8c20a;
+  /* teal-400 → CEITEC teal (borders, hover) */
+  --color-teal-400: #21a8c2;
+  /* teal-500 → CEITEC teal (focus rings) */
+  --color-teal-500: #21a8c2;
+  /* teal-600 → CEITEC green (primary, text, buttons) */
+  --color-teal-600: #7ac143;
+  /* teal-700 → green hover */
+  --color-teal-700: #68a837;
+  /* teal-800 → green active */
+  --color-teal-800: #5a9230;
+}
+
+/* CSS variables for ECharts option objects (can't use Tailwind classes inside JS) */
+:root {
+  --c-del:    #ef4444;
+  --c-dup:    #3b82f6;
+  --c-accent: #7ac143;
+  --c-muted:  #9ca3af;
+  --c-border: #e5e7eb;
+  --c-grid:   #f9fafb;
+}
+
+* { scrollbar-width: thin; scrollbar-color: #e5e7eb transparent; }
+
+body { font-family: 'Poppins', ui-sans-serif, system-ui, sans-serif; }
