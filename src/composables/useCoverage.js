@@ -2,7 +2,7 @@ import { ref, computed } from 'vue'
 
 // ── Module-level state (shared across all useCoverage() calls) ─────────────────
 const coverageFilesMap = ref({})  // { sampleId: File }
-const parsedCache      = {}       // { sampleId: { gene: [[chrom,start,end,depths[]], ...] } }
+const parsedCache      = {}       // { sampleId: { gene: [{chrom,start,end,gene,avgDepth,regionLength,fractionCovered}] } }
 const currentSample    = ref('')
 export const coverageSelectedGene = ref('')
 
@@ -24,38 +24,36 @@ export const coverageGeneList = computed(() => {
 })
 
 // ── TSV → compact format parser (runs in browser at runtime) ───────────────────
+// New format: 8 columns, no header
+// chrom  start  end  gene  total_depth_sum  region_length  bases_covered  fraction_covered
 function parseCompact(text) {
   const geneMap = {}
   const lines   = text.split('\n')
 
   for (const line of lines) {
     if (!line) continue
-    const tab1 = line.indexOf('\t')
-    const tab2 = line.indexOf('\t', tab1 + 1)
-    const tab3 = line.indexOf('\t', tab2 + 1)
-    const tab4 = line.indexOf('\t', tab3 + 1)
-    const tab5 = line.indexOf('\t', tab4 + 1)
-    if (tab5 === -1) continue
+    const cols = line.split('\t')
+    if (cols.length < 8) continue
 
-    const chrom = line.slice(0, tab1)
-    const start = parseInt(line.slice(tab1 + 1, tab2))
-    const end   = parseInt(line.slice(tab2 + 1, tab3))
-    const gene  = line.slice(tab3 + 1, tab4)
-    const pos   = parseInt(line.slice(tab4 + 1, tab5))  // 1-based
-    const depth = parseInt(line.slice(tab5 + 1))
+    const chrom        = cols[0]
+    const start        = parseInt(cols[1])
+    const end          = parseInt(cols[2])
+    const gene         = cols[3]
+    const totalDepth   = parseInt(cols[4])
+    const regionLength = parseInt(cols[5])
+    const fractionCovered = parseFloat(cols[7])
+    const avgDepth     = regionLength > 0 ? totalDepth / regionLength : 0
 
-    if (!geneMap[gene]) geneMap[gene] = {}
-    const key = `${chrom}:${start}-${end}`
-    if (!geneMap[gene][key]) geneMap[gene][key] = [chrom, start, end, []]
-    geneMap[gene][key][3][pos - 1] = depth
+    if (!geneMap[gene]) geneMap[gene] = []
+    geneMap[gene].push({ chrom, start, end, gene, avgDepth, regionLength, fractionCovered })
   }
 
+  // Sort each gene's regions by chrom then start
   const sorted = {}
-  for (const gene of Object.keys(geneMap)) {
-    sorted[gene] = Object.values(geneMap[gene])
-      .sort((a, b) =>
-        String(a[0]).localeCompare(String(b[0]), undefined, { numeric: true }) || a[1] - b[1]
-      )
+  for (const [gene, regions] of Object.entries(geneMap)) {
+    sorted[gene] = regions.sort((a, b) =>
+      String(a.chrom).localeCompare(String(b.chrom), undefined, { numeric: true }) || a.start - b.start
+    )
   }
   return sorted
 }
@@ -68,6 +66,7 @@ export function useCoverage() {
     currentSample.value !== '' && !!parsedCache[currentSample.value]
   )
 
+  /** Returns regions for the given gene (or all genes if gene='') */
   function getGeneData(gene) {
     const data = parsedCache[currentSample.value]
     if (!data) return []
@@ -75,15 +74,49 @@ export function useCoverage() {
     const rows = []
     for (const g of genes) {
       if (!data[g]) continue
-      for (const [chrom, start, end, depths] of data[g]) {
-        for (let i = 0; i < depths.length; i++) {
-          if (depths[i] != null) {
-            rows.push({ chrom, start, end, gene: g, pos: i + 1, depth: depths[i] })
-          }
-        }
+      for (const reg of data[g]) {
+        rows.push(reg)
       }
     }
     return rows
+  }
+
+  /**
+   * Given an array of {chrom, start, end, name} BED regions, returns coverage
+   * regions from the current sample that overlap each BED region.
+   * Output: [{chrom, start, end, gene, avgDepth, regionLength, fractionCovered, bedName}]
+   */
+  function getRegionData(bedRegions) {
+    const data = parsedCache[currentSample.value]
+    if (!data) return []
+    const norm = c => String(c).replace(/^chr/i, '')
+
+    // Flatten all coverage regions
+    const allRegions = []
+    for (const regions of Object.values(data)) {
+      for (const reg of regions) {
+        allRegions.push(reg)
+      }
+    }
+
+    const result = []
+    const seen   = new Set()
+
+    for (const bed of bedRegions) {
+      const nc = norm(bed.chrom)
+      for (const reg of allRegions) {
+        if (norm(reg.chrom) !== nc) continue
+        if (reg.end < bed.start || reg.start > bed.end) continue
+        const key = `${reg.chrom}:${reg.start}-${reg.end}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        result.push({ ...reg, bedName: bed.name })
+      }
+    }
+
+    return result.sort((a, b) =>
+      String(a.chrom).localeCompare(String(b.chrom), undefined, { numeric: true }) || a.start - b.start
+    )
   }
 
   async function load(sampleId) {
@@ -110,35 +143,6 @@ export function useCoverage() {
     } finally {
       loading.value = false
     }
-  }
-
-  /**
-   * Given an array of {chrom, start, end, name} BED regions, returns coverage
-   * bases from the current sample that fall within each region.
-   * Output: [{chrom, start, end, name, bases: [{pos, depth}]}]
-   */
-  function getRegionData(bedRegions) {
-    const data = parsedCache[currentSample.value]
-    if (!data) return []
-    const norm = c => String(c).replace(/^chr/i, '')
-
-    return bedRegions.map(({ chrom, start, end, name }) => {
-      const nc = norm(chrom)
-      const bases = []
-      for (const regions of Object.values(data)) {
-        for (const [rChrom, rStart, rEnd, depths] of Object.values(regions)) {
-          if (norm(rChrom) !== nc) continue
-          if (rEnd < start || rStart > end) continue
-          for (let i = 0; i < depths.length; i++) {
-            if (depths[i] == null) continue
-            const pos = rStart + i
-            if (pos >= start && pos <= end) bases.push({ pos, depth: depths[i] })
-          }
-        }
-      }
-      bases.sort((a, b) => a.pos - b.pos)
-      return { chrom: nc, start, end, name: name || `${chrom}:${start}-${end}`, bases }
-    })
   }
 
   return { coverageGeneList, getGeneData, getRegionData, loading, error, loaded, load, currentSample }

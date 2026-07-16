@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import ceitecLogo from "../assets/ceitec-logo.png";
 import { useFilters, CHROM_ORDER } from "../composables/useFilters.js";
 import { coverageSampleList } from "../composables/useCoverage.js";
@@ -10,7 +10,6 @@ import CallerConcordance from "./charts/CallerConcordance.vue";
 import CopyNumberScatter from "./charts/CopyNumberScatter.vue";
 import DataTable from "./charts/DataTable.vue";
 import GenomeCoverage from "./charts/GenomeCoverage.vue";
-import ZScoreScatter from "./charts/ZScoreScatter.vue";
 import ChartInfo from "./ChartInfo.vue";
 
 const props = defineProps({ data: Array, filename: String });
@@ -24,9 +23,12 @@ const {
   minConcordance,
   geneSearch,
   selectedCaller,
+  selectedClassification,
   availableSamples,
   availableChromosomes,
   availableGenes,
+  availableCallers,
+  availableClassifications,
   filtered,
   reset,
 } = useFilters(dataRef);
@@ -42,9 +44,32 @@ const stats = computed(() => {
   };
 });
 
+// Auto-switch sample when selected gene doesn't exist in the current sample
+watch(geneSearch, (gene) => {
+  if (!gene || !selectedSample.value || selectedSample.value === 'all') return
+  const hasGene = dataRef.value.some(r => r.gene === gene && r.sample === selectedSample.value)
+  if (!hasGene) {
+    const match = dataRef.value.find(r => r.gene === gene)
+    if (match) selectedSample.value = match.sample
+  }
+})
+
 const sampleList = coverageSampleList;
 const sidebarOpen = ref(true);
 const mobileSidebarOpen = ref(false);
+
+const coverageJumpTo  = ref(null)
+const coverageSection = ref(null)
+
+function onTableNavigate(targets) {
+  coverageJumpTo.value = targets && targets.length ? targets : null
+  if (targets && targets.length) {
+    const last = targets[targets.length - 1]
+    if (last.sample) selectedSample.value = last.sample
+    coverageSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+}
+
 
 </script>
 
@@ -124,9 +149,13 @@ const mobileSidebarOpen = ref(false);
           @update:concordance="minConcordance = $event"
           :caller="selectedCaller"
           @update:caller="selectedCaller = $event"
+          :caller-list="availableCallers"
           :gene-list="availableGenes"
           :gene="geneSearch"
           @update:gene="geneSearch = $event"
+          :classification="selectedClassification"
+          @update:classification="selectedClassification = $event"
+          :classification-list="availableClassifications"
           :result-count="filtered.length"
           @reset="reset"
         />
@@ -160,12 +189,12 @@ const mobileSidebarOpen = ref(false);
               <h3 class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">Data Table</h3>
               <ChartInfo
                 file="merged_target_consensus.tsv"
-                :columns="['sample','CHROM','START','END','target_name','consensus_type','Count_Detected','cnvkit','exomedepth','cnmops','panelcnmops','freec','xhmm','conifer','jabcontool','gatk_gcnv']"
-                description="Lists all CNV targets passing the current filters. Each row is one target region. The Callers column shows which of the 9 callers detected the event (DEL or DUP). Sortable by any column; 6 rows per page."
+                :columns="['sample','CHROM','START','END','GFT_genes','consensus_type','n_callers','callers','Classification']"
+                description="Lists all CNV calls passing the current filters. Each row is one consensus CNV event. The Callers column shows how many tools detected it; Classification shows the clinical significance. Sortable by any column; 6 rows per page."
               />
             </div>
             <div style="min-width: 560px">
-              <DataTable :data="filtered" />
+              <DataTable :data="filtered" @navigate="onTableNavigate" />
             </div>
           </div>
           <div class="bg-white border border-gray-200 rounded-xl p-5 overflow-x-auto">
@@ -183,34 +212,20 @@ const mobileSidebarOpen = ref(false);
           </div>
         </div>
 
-        <!-- Z-Score Scatter -->
-        <div class="bg-white border border-gray-200 rounded-xl p-5 overflow-x-auto">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">Genome-Wide Z-Score</h3>
-            <ChartInfo
-              file="merged_target_consensus.tsv"
-              :columns="['cnvkit_CN','exomedepth_CN','cnmops_CN','panelcnmops_CN','freec_CN','xhmm_CN','conifer_CN','jabcontool_CN','gatk_gcnv_CN','CHROM','START','consensus_type']"
-              description="Each point is one target region. Mean CN is computed across all callers that made a call. Z-score = (mean CN − global mean) / std dev. Red = DEL, blue = DUP, grey = CN≈2 (normal diploid). Points with |z| > 2 are labeled with their gene name."
-            />
-          </div>
-          <div style="min-width: 600px">
-            <ZScoreScatter :data="filtered" :chrom-order="CHROM_ORDER" />
-          </div>
-        </div>
-
         <!-- Genome Coverage -->
-        <div class="bg-white border border-gray-200 rounded-xl p-5 overflow-x-auto">
+        <div ref="coverageSection" class="bg-white border border-gray-200 rounded-xl p-5 overflow-x-auto">
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">Genome Coverage</h3>
             <ChartInfo
-              :file="['*.per_region_coverage.tsv']"
-              :columns="['chrom','region_start','region_end','gene','pos_in_region','depth']"
-              description="Per-base read depth for the selected sample and gene. Each target region is a continuous segment separated by gaps. Depth color: red ≤ 20×, amber 20–100×, grey > 100×. You can also upload a BED file to visualize coverage for custom regions instead of a gene."
+              :file="['*.region_coverage.tsv']"
+              :columns="['chrom','region_start','region_end','gene','total_depth_sum','region_length','bases_covered','fraction_covered']"
+              description="Average read depth per target region for the selected sample and gene. Each bar is one exon/target region. Depth color: red ≤ 20×, amber 20–100×, grey > 100×. You can also upload a BED file to visualize coverage for custom regions instead of a gene."
             />
           </div>
           <GenomeCoverage
             :sample-list="sampleList"
             :active-sample-id="selectedSample"
+            :jump-to="coverageJumpTo"
           />
         </div>
 

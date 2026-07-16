@@ -1,7 +1,7 @@
 <!--
   Caller Concordance — horizontal bar chart.
-  Groups targets by which combination of callers detected them.
-  All-3-caller agreement is highlighted in green.
+  Groups CNV calls by which combination of callers detected them.
+  Uses the 'callers' semicolon-separated field from merged_target_consensus.tsv.
 -->
 <script setup>
 import { computed } from 'vue'
@@ -9,23 +9,29 @@ import { VChart } from '../../utils/echarts.js'
 
 const props = defineProps({ data: Array })
 
+const LABEL_MAP = {
+  cnvkit:      'CNVkit',
+  exomedepth:  'ED',
+  cnmops:      'cnMOPS',
+  panelcnmops: 'pCNMOPS',
+  freec:       'FreeC',
+  xhmm:        'XHMM',
+  conifer:     'CoNIFER',
+  jabcontool:  'JaCoNTool',
+  gatk_gcnv:   'GATK-gCNV',
+}
+
+function callerLabel(raw) {
+  return LABEL_MAP[raw.trim()] || raw.trim()
+}
+
 const option = computed(() => {
   const combos = {}
 
-  const callerDefs = [
-    { col: 'cnvkit',       label: 'CKit' },
-    { col: 'exomedepth',   label: 'ED' },
-    { col: 'cnmops',       label: 'cnMOPS' },
-    { col: 'panelcnmops',  label: 'pCNMOPS' },
-    { col: 'freec',        label: 'FreeC' },
-    { col: 'xhmm',         label: 'XHMM' },
-    { col: 'conifer',      label: 'CoNIFER' },
-    { col: 'jabcontool',   label: 'JaCoNTool' },
-    { col: 'gatk_gcnv',    label: 'GATK-gCNV' },
-  ]
-
   for (const row of props.data) {
-    const callers = callerDefs.filter(c => row[c.col] !== '0').map(c => c.label)
+    const callers = row.callers
+      ? row.callers.split(';').map(callerLabel)
+      : []
     const key = callers.length ? callers.join(' + ') : 'None'
     combos[key] = (combos[key] || 0) + 1
   }

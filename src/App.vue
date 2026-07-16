@@ -6,10 +6,10 @@ import { selectedSample } from './composables/useFilters.js'
 import LoadingScreen from './components/LoadingScreen.vue'
 import DashboardView from './components/DashboardView.vue'
 import ceitecLogo from './assets/ceitec-logo.png'
-import sampleCnvRaw   from './assets/sample/merged_target_consensus.tsv?raw'
-import sampleCovARaw  from './assets/sample/SAMPLE_A.per_region_coverage.tsv?raw'
-import sampleCovBRaw  from './assets/sample/SAMPLE_B.per_region_coverage.tsv?raw'
-import sampleCovCRaw  from './assets/sample/SAMPLE_C.per_region_coverage.tsv?raw'
+import sampleCnvRaw      from './assets/sample/merged_target_consensus.tsv?raw'
+import sampleCov1846Raw  from './assets/sample/BR-1846PMS2.region_coverage.tsv?raw'
+import sampleCov2048Raw  from './assets/sample/BR-2048.region_coverage.tsv?raw'
+import sampleCov2050Raw  from './assets/sample/BR-2050.region_coverage.tsv?raw'
 
 const { rows, filename, loading, error, load } = useData()
 
@@ -27,15 +27,15 @@ function makeFile(name, content) {
 async function loadDefaultSample() {
   folderError.value = ''
   setCoverageFiles({
-    SAMPLE_A: makeFile('SAMPLE_A.per_region_coverage.tsv', sampleCovARaw),
-    SAMPLE_B: makeFile('SAMPLE_B.per_region_coverage.tsv', sampleCovBRaw),
-    SAMPLE_C: makeFile('SAMPLE_C.per_region_coverage.tsv', sampleCovCRaw),
+    'BR-1846PMS2': makeFile('BR-1846PMS2.region_coverage.tsv', sampleCov1846Raw),
+    'BR-2048':     makeFile('BR-2048.region_coverage.tsv',     sampleCov2048Raw),
+    'BR-2050':     makeFile('BR-2050.region_coverage.tsv',     sampleCov2050Raw),
   })
   await load(makeFile('merged_target_consensus.tsv', sampleCnvRaw))
-  // Pre-select SAMPLE_A so the genome coverage chart shows immediately
+  // Pre-select first sample so the genome coverage chart shows immediately
   const { load: loadCov } = useCoverage()
-  await loadCov('SAMPLE_A')
-  selectedSample.value = 'SAMPLE_A'
+  await loadCov('BR-1846PMS2')
+  selectedSample.value = 'BR-1846PMS2'
 }
 
 async function onFolderSelected(e) {
@@ -52,8 +52,8 @@ async function onFolderSelected(e) {
 
   const covMap = {}
   for (const f of files) {
-    if (f.name.endsWith('.per_region_coverage.tsv')) {
-      covMap[f.name.replace('.per_region_coverage.tsv', '')] = f
+    if (f.name.endsWith('.region_coverage.tsv')) {
+      covMap[f.name.replace('.region_coverage.tsv', '')] = f
     }
   }
 
@@ -205,7 +205,7 @@ onMounted(() => {
         <!-- Required files note -->
         <div class="text-center space-y-1">
           <p class="text-xs text-gray-400">Required: <code class="text-gray-500">merged_target_consensus.tsv</code></p>
-          <p class="text-xs text-gray-400">Optional: <code class="text-gray-500">*.per_region_coverage.tsv</code></p>
+          <p class="text-xs text-gray-400">Optional: <code class="text-gray-500">*.region_coverage.tsv</code></p>
         </div>
 
         <!-- Divider -->
@@ -222,7 +222,7 @@ onMounted(() => {
           >
             Use default sample
           </button>
-          <p class="text-[11px] text-gray-400">Try with built-in example data (3 samples, 6 genes)</p>
+          <p class="text-[11px] text-gray-400">Try with built-in example data (BR-1846PMS2, BR-2048, BR-2050)</p>
         </div>
 
         <p v-if="folderError" class="text-red-400 text-sm">{{ folderError }}</p>

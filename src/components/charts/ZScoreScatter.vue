@@ -1,43 +1,21 @@
 <!--
-  Z-Score Scatter — genome-wide CNV plot (mirrors jabCoNtool style).
-  X axis = chromosomes (targets spread by genomic position within each chrom).
-  Y axis = standard deviation distance (z-score) of mean caller CN vs. all targets.
-  DEL = red cross, DUP = blue cross. Gene labels on |z| > 2 outliers.
+  Genome-Wide Caller Support — scatter plot across all chromosomes.
+  X axis = chromosomes (CNVs spread by genomic position within each chrom).
+  Y axis = n_callers (number of callers supporting the call).
+  DEL = red cross, DUP = blue cross.
+  Gene labels on calls with high caller support (n_callers >= max-1).
 -->
 <script setup>
 import { computed } from 'vue'
 import { VChart } from '../../utils/echarts.js'
 
 const props = defineProps({ data: Array, chromOrder: Array })
-
-function getGene(name) {
-  return name?.split(':')[0] || ''
-}
-
-// Per-target mean CN across whichever callers made a call
-function meanCN(row) {
-  const vals = [
-    row.exomedepth_CN, row.cnmops_CN, row.panelcnmops_CN,
-    row.cnvkit_CN, row.freec_CN
-  ].filter(v => v > 0)
-  return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 2
-}
-
-const enriched = computed(() => {
-  if (!props.data.length) return []
-
-  const withMean = props.data.map(r => ({ ...r, cn: meanCN(r) }))
-
-  // Z-score across all targets
-  const cns = withMean.map(r => r.cn)
-  const mean = cns.reduce((a, b) => a + b, 0) / cns.length
-  const std  = Math.sqrt(cns.reduce((a, b) => a + (b - mean) ** 2, 0) / cns.length) || 1
-
-  return withMean.map(r => ({ ...r, z: (r.cn - mean) / std }))
-})
+const emit  = defineEmits(['navigate'])
 
 const option = computed(() => {
-  const rows   = enriched.value
+  const rows   = props.data
+  if (!rows.length) return {}
+
   const chroms = props.chromOrder.filter(c => rows.some(r => r.CHROM === c))
 
   // Min/max START per chromosome for relative x positioning
@@ -47,35 +25,33 @@ const option = computed(() => {
     extents[c] = { min: Math.min(...positions), max: Math.max(...positions) }
   }
 
-  const del = [], dup = [], cn2 = []
+  const maxCallers = rows.reduce((m, r) => Math.max(m, r.n_callers), 0)
+
+  const del = [], dup = []
 
   for (const row of rows) {
-    const ci    = chroms.indexOf(row.CHROM)
+    const ci   = chroms.indexOf(row.CHROM)
     const { min, max } = extents[row.CHROM]
-    const frac  = max > min ? (row.START - min) / (max - min) : 0.5
-    const x     = ci + frac * 0.85 + 0.075
-    const gene  = getGene(row.target_name)
-    const isCN2 = Math.round(row.cn) === 2
-    const isOutlier = Math.abs(row.z) > 2
-
-    const typeColor = isCN2 ? '#9ca3af' : row.consensus_type === 'DEL' ? '#ef4444' : '#3b82f6'
+    const frac = max > min ? (row.START - min) / (max - min) : 0.5
+    const x    = ci + frac * 0.85 + 0.075
+    const isDel = row.consensus_type === 'DEL'
+    const yVal  = isDel ? -row.n_callers : row.n_callers
 
     const pt = {
-      value: [x, parseFloat(row.z.toFixed(3)), gene, parseFloat(row.cn.toFixed(2))],
-      ...(isOutlier && gene ? {
+      value: [x, yVal, row.gene, row.SVLEN, row.Classification || '', row.n_callers, row.CHROM],
+      ...(row.gene ? {
         label: {
           show: true,
-          formatter: gene,
+          formatter: row.gene,
           fontSize: 9,
-          color: typeColor,
-          position: row.z > 0 ? 'top' : 'bottom',
-          distance: 4
+          color: isDel ? '#ef4444' : '#3b82f6',
+          position: isDel ? 'bottom' : 'top',
+          distance: 4,
         }
       } : {})
     }
 
-    if (isCN2) cn2.push(pt)
-    else if (row.consensus_type === 'DEL') del.push(pt)
+    if (isDel) del.push(pt)
     else dup.push(pt)
   }
 
@@ -87,16 +63,16 @@ const option = computed(() => {
       borderColor: '#e5e7eb',
       textStyle: { color: '#1f2937', fontSize: 12 },
       formatter: p => {
-        const [, z, gene, cn] = p.data.value ?? p.data
-        return `<b>${gene || '—'}</b><br/>Z-score: ${z}<br/>Mean CN: ${cn}`
+        const [, , gene, svlen, cls, nc] = p.data.value ?? p.data
+        return `<b>${gene || '—'}</b><br/>Callers: ${nc}<br/>Size: ${svlen?.toLocaleString()} bp<br/>${cls}`
       }
     },
     legend: {
-      data: ['DEL', 'DUP', 'CN=2'],
+      data: ['DEL', 'DUP'],
       top: 4, right: 8,
       textStyle: { color: '#6b7280', fontSize: 11 }
     },
-    grid: { top: 36, left: 64, right: 16, bottom: 32 },
+    grid: { top: 36, left: 52, right: 16, bottom: 32 },
     xAxis: {
       type: 'value',
       min: 0,
@@ -114,12 +90,18 @@ const option = computed(() => {
     },
     yAxis: {
       type: 'value',
-      name: 'Std Dev Distance',
+      name: 'Callers',
       nameLocation: 'middle',
-      nameGap: 48,
+      nameGap: 32,
       nameTextStyle: { color: '#6b7280', fontSize: 11, fontWeight: 'bold' },
-      axisLabel: { color: '#9ca3af', fontSize: 10 },
-      splitLine: { lineStyle: { color: '#f3f4f6' } }
+      axisLabel: {
+        color: '#9ca3af', fontSize: 10,
+        formatter: v => Math.abs(v)
+      },
+      splitLine: { lineStyle: { color: '#f3f4f6' } },
+      minInterval: 1,
+      min: -maxCallers,
+      max: maxCallers,
     },
     series: [
       {
@@ -143,19 +125,18 @@ const option = computed(() => {
         symbolSize: 7,
         itemStyle: { color: '#3b82f6', opacity: 0.75 }
       },
-      {
-        name: 'CN=2',
-        type: 'scatter',
-        data: cn2,
-        symbol: 'cross',
-        symbolSize: 7,
-        itemStyle: { color: '#9ca3af', opacity: 0.6 }
-      }
     ]
   }
 })
+
+function onPointClick(params) {
+  const v = params.data?.value
+  if (!v) return
+  const [, , gene, , , , chrom] = v
+  if (gene && chrom) emit('navigate', { gene, chrom })
+}
 </script>
 
 <template>
-  <VChart :option="option" autoresize style="width: 100%; height: 340px" />
+  <VChart :option="option" autoresize style="width: 100%; height: 340px; cursor: pointer" @click="onPointClick" />
 </template>

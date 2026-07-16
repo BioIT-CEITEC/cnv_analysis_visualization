@@ -1,8 +1,8 @@
 <!--
-  Copy Number Scatter — one dot per target per caller, Y = CN value.
-  Dashed line at CN=2 (diploid baseline).
-  Only plots points where the caller actually made a call (!= '0').
-  Capped at 400 targets to keep it readable.
+  CNV Size Scatter — one dot per CNV call.
+  X axis = SVLEN (size of the CNV in bp, log scale).
+  Y axis = n_callers (number of callers supporting the call).
+  DEL = red, DUP = blue. Tooltip shows gene, classification, size.
 -->
 <script setup>
 import { computed } from 'vue'
@@ -10,29 +10,21 @@ import { VChart } from '../../utils/echarts.js'
 
 const props = defineProps({ data: Array })
 
-function getGene(name) {
-  const m = name?.match(/gene_symbol=([^;]+)/)
-  return m ? m[1] : ''
-}
-
 const option = computed(() => {
-  const rows = props.data.slice(0, 400)
+  const del = [], dup = []
 
-  const series = (callerKey, cnKey, color, name) => ({
-    name,
-    type: 'scatter',
-    symbolSize: 5,
-    itemStyle: { color, opacity: 0.75 },
-    data: rows
-      .map((r, i) => r[callerKey] !== '0' ? [i, r[cnKey], i] : null)
-      .filter(Boolean),
-    tooltip: {
-      formatter: p => {
-        const r = rows[p.data[2]]
-        return `<b>${getGene(r?.target_name)}</b><br/>${name}: ${p.data[1]}<br/>chr${r?.CHROM}:${r?.START?.toLocaleString()}`
-      }
+  for (const r of props.data) {
+    const pt = {
+      value: [r.SVLEN, r.n_callers, r.gene, r.Classification || '', r.consensus_type],
     }
-  })
+    if (r.consensus_type === 'DEL') del.push(pt)
+    else dup.push(pt)
+  }
+
+  const tooltipFmt = p => {
+    const [svlen, nc, gene, cls] = p.data.value
+    return `<b>${gene || '—'}</b><br/>Size: ${svlen?.toLocaleString()} bp<br/>Callers: ${nc}<br/>${cls}`
+  }
 
   return {
     backgroundColor: 'transparent',
@@ -40,41 +32,54 @@ const option = computed(() => {
       trigger: 'item',
       backgroundColor: '#ffffff',
       borderColor: '#e5e7eb',
-      textStyle: { color: '#1f2937', fontSize: 12 }
+      textStyle: { color: '#1f2937', fontSize: 12 },
+      formatter: tooltipFmt,
     },
     legend: {
-      data: ['ExomeDepth', 'cnMOPS', 'panelcnMOPS', 'CNVkit'],
+      data: ['DEL', 'DUP'],
       top: 4, right: 8,
       textStyle: { color: '#6b7280', fontSize: 11 }
     },
-    grid: { top: 36, left: 48, right: 16, bottom: 28 },
+    grid: { top: 36, left: 52, right: 16, bottom: 32 },
     xAxis: {
-      type: 'category',
-      data: rows.map((_, i) => i),
-      axisLabel: { show: false },
-      axisTick: { show: false }
+      type: 'log',
+      name: 'Size (bp)',
+      nameLocation: 'middle',
+      nameGap: 28,
+      nameTextStyle: { color: '#6b7280', fontSize: 11, fontWeight: 'bold' },
+      axisLabel: {
+        color: '#9ca3af', fontSize: 10,
+        formatter: v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v
+      },
+      splitLine: { lineStyle: { color: '#f3f4f6' } },
+      min: 1,
     },
     yAxis: {
       type: 'value',
-      name: 'CN',
-      nameTextStyle: { color: '#9ca3af', fontSize: 10 },
+      name: 'Callers',
+      nameLocation: 'middle',
+      nameGap: 32,
+      nameTextStyle: { color: '#6b7280', fontSize: 11, fontWeight: 'bold' },
       axisLabel: { color: '#9ca3af', fontSize: 10 },
       splitLine: { lineStyle: { color: '#f3f4f6' } },
-      min: 0
+      minInterval: 1,
+      min: 0,
     },
     series: [
-      series('exomedepth',  'exomedepth_CN',  '#f59e0b', 'ExomeDepth'),
-      series('cnmops',      'cnmops_CN',      '#16a34a', 'cnMOPS'),
-      series('panelcnmops', 'panelcnmops_CN', '#7c3aed', 'panelcnMOPS'),
-      series('cnvkit',      'cnvkit_CN',      '#3b82f6', 'CNVkit'),
       {
-        type: 'scatter', data: [], silent: true,
-        markLine: {
-          silent: true, symbol: 'none',
-          data: [{ yAxis: 2, lineStyle: { color: '#d1d5db', type: 'dashed', width: 1 } }],
-          label: { formatter: 'CN=2', color: '#9ca3af', fontSize: 10 }
-        }
-      }
+        name: 'DEL',
+        type: 'scatter',
+        symbolSize: 7,
+        itemStyle: { color: '#ef4444', opacity: 0.75 },
+        data: del,
+      },
+      {
+        name: 'DUP',
+        type: 'scatter',
+        symbolSize: 7,
+        itemStyle: { color: '#3b82f6', opacity: 0.75 },
+        data: dup,
+      },
     ]
   }
 })

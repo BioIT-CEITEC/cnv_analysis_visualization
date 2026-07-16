@@ -16,11 +16,12 @@ export const CHROM_ORDER = [
 export const selectedSample = ref('all')
 
 export function useFilters(data) {
-  const selectedChrom    = ref('all')
-  const selectedType     = ref('all')   // 'all' | 'DEL' | 'DUP'
-  const minConcordance   = ref(1)       // 1 | 2 | 3
-  const geneSearch       = ref('')
-  const selectedCaller   = ref('all')
+  const selectedChrom          = ref('all')
+  const selectedType           = ref('all')   // 'all' | 'DEL' | 'DUP'
+  const minConcordance         = ref(1)       // minimum n_callers
+  const geneSearch             = ref('')
+  const selectedCaller         = ref('all')
+  const selectedClassification = ref('all')
 
   // Samples present in the data
   const availableSamples = computed(() =>
@@ -38,17 +39,37 @@ export function useFilters(data) {
     return CHROM_ORDER.filter(c => inData.has(c))
   })
 
+  // Unique classifications present in the data
+  const availableClassifications = computed(() =>
+    [...new Set(data.value.map(r => r.Classification).filter(Boolean))].sort()
+  )
+
+  // Unique callers present across all rows (derived from the 'callers' field)
+  const availableCallers = computed(() => {
+    const set = new Set()
+    for (const row of data.value) {
+      if (row.callers) {
+        for (const c of row.callers.split(';')) {
+          const trimmed = c.trim()
+          if (trimmed) set.add(trimmed)
+        }
+      }
+    }
+    return [...set].sort()
+  })
+
   const filtered = computed(() =>
     data.value.filter(row => {
       if (selectedSample.value !== 'all' && row.sample !== selectedSample.value) return false
       if (selectedChrom.value  !== 'all' && row.CHROM  !== selectedChrom.value)  return false
       if (selectedType.value   !== 'all' && row.consensus_type !== selectedType.value) return false
-      if (row.Count_Detected < minConcordance.value) return false
+      if (row.n_callers < minConcordance.value) return false
       if (geneSearch.value && row.gene !== geneSearch.value) return false
       if (selectedCaller.value !== 'all') {
-        const v = row[selectedCaller.value]
-        if (!v || v === '0') return false
+        const callers = row.callers ? row.callers.split(';').map(c => c.trim()) : []
+        if (!callers.includes(selectedCaller.value)) return false
       }
+      if (selectedClassification.value !== 'all' && row.Classification !== selectedClassification.value) return false
       return true
     })
   )
@@ -57,13 +78,15 @@ export function useFilters(data) {
     selectedSample.value = 'all'
     selectedChrom.value  = 'all'
     selectedType.value   = 'all'
-    minConcordance.value = 1
-    geneSearch.value     = ''
-    selectedCaller.value = 'all'
+    minConcordance.value         = 1
+    geneSearch.value             = ''
+    selectedCaller.value         = 'all'
+    selectedClassification.value = 'all'
   }
 
   return {
     selectedSample, selectedChrom, selectedType, minConcordance, geneSearch, selectedCaller,
-    availableSamples, availableChromosomes, availableGenes, filtered, reset
+    selectedClassification, availableSamples, availableChromosomes, availableGenes,
+    availableCallers, availableClassifications, filtered, reset
   }
 }
