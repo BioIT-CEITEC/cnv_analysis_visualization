@@ -66,7 +66,7 @@ Open your browser at the URL shown (usually `http://localhost:5173`).
 You will see the intro screen with two options:
 
 - **Open Data Folder** — select your own data folder
-- **Use default sample** — loads built-in example data (BR-1846PMS2, BR-2048, BR-2050) so you can explore the app immediately without any data
+- **Use default sample** — loads built-in example data (anonymized samples sample57, sample99, sample104, sample105) so you can explore the app immediately without any data
 
 ---
 

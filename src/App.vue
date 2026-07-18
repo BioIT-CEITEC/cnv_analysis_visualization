@@ -7,9 +7,10 @@ import LoadingScreen from './components/LoadingScreen.vue'
 import DashboardView from './components/DashboardView.vue'
 import ceitecLogo from './assets/ceitec-logo.png'
 import sampleCnvRaw      from './assets/sample/merged_target_consensus.tsv?raw'
-import sampleCov1846Raw  from './assets/sample/BR-1846PMS2.region_coverage.tsv?raw'
-import sampleCov2048Raw  from './assets/sample/BR-2048.region_coverage.tsv?raw'
-import sampleCov2050Raw  from './assets/sample/BR-2050.region_coverage.tsv?raw'
+import sampleCov57Raw    from './assets/sample/sample57.region_coverage.tsv?raw'
+import sampleCov99Raw    from './assets/sample/sample99.region_coverage.tsv?raw'
+import sampleCov104Raw   from './assets/sample/sample104.region_coverage.tsv?raw'
+import sampleCov105Raw   from './assets/sample/sample105.region_coverage.tsv?raw'
 
 const { rows, filename, loading, error, load } = useData()
 
@@ -27,15 +28,16 @@ function makeFile(name, content) {
 async function loadDefaultSample() {
   folderError.value = ''
   setCoverageFiles({
-    'BR-1846PMS2': makeFile('BR-1846PMS2.region_coverage.tsv', sampleCov1846Raw),
-    'BR-2048':     makeFile('BR-2048.region_coverage.tsv',     sampleCov2048Raw),
-    'BR-2050':     makeFile('BR-2050.region_coverage.tsv',     sampleCov2050Raw),
+    'sample57':  makeFile('sample57.region_coverage.tsv',  sampleCov57Raw),
+    'sample99':  makeFile('sample99.region_coverage.tsv',  sampleCov99Raw),
+    'sample104': makeFile('sample104.region_coverage.tsv', sampleCov104Raw),
+    'sample105': makeFile('sample105.region_coverage.tsv', sampleCov105Raw),
   })
   await load(makeFile('merged_target_consensus.tsv', sampleCnvRaw))
   // Pre-select first sample so the genome coverage chart shows immediately
   const { load: loadCov } = useCoverage()
-  await loadCov('BR-1846PMS2')
-  selectedSample.value = 'BR-1846PMS2'
+  await loadCov('sample57')
+  selectedSample.value = 'sample57'
 }
 
 async function onFolderSelected(e) {
@@ -222,7 +224,7 @@ onMounted(() => {
           >
             Use default sample
           </button>
-          <p class="text-[11px] text-gray-400">Try with built-in example data (BR-1846PMS2, BR-2048, BR-2050)</p>
+          <p class="text-[11px] text-gray-400">Try with built-in example data (sample57, sample99, sample104, sample105)</p>
         </div>
 
         <p v-if="folderError" class="text-red-400 text-sm">{{ folderError }}</p>

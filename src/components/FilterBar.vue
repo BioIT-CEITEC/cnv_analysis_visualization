@@ -7,7 +7,6 @@ const props = defineProps({
   chromosomes: Array,
   chrom:      String,
   type:       String,
-  concordance: Number,
   caller:     String,
   callerList: { type: Array, default: () => [] },
   resultCount: Number,
@@ -21,7 +20,6 @@ const emit = defineEmits([
   "update:sample",
   "update:chrom",
   "update:type",
-  "update:concordance",
   "update:caller",
   "update:gene",
   "update:classification",
@@ -111,24 +109,6 @@ function clearGene() {
               : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50',
           ]"
         >{{ t === 'all' ? 'All' : t }}</button>
-      </div>
-    </div>
-
-    <!-- Min Callers -->
-    <div class="flex flex-col gap-1">
-      <label class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">Min. Callers</label>
-      <div class="flex w-full">
-        <button
-          v-for="n in [1, 2, 3, 4, 5]"
-          :key="n"
-          @click="emit('update:concordance', n)"
-          :class="[
-            'flex-1 py-1.5 text-sm font-medium border transition-colors first:rounded-l-md last:rounded-r-md border-l-0 first:border-l',
-            concordance === n
-              ? 'bg-teal-50 border-teal-400 text-teal-600'
-              : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50',
-          ]"
-        >{{ n }}</button>
       </div>
     </div>
 

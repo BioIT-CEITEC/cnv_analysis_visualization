@@ -18,7 +18,6 @@ export const selectedSample = ref('all')
 export function useFilters(data) {
   const selectedChrom          = ref('all')
   const selectedType           = ref('all')   // 'all' | 'DEL' | 'DUP'
-  const minConcordance         = ref(1)       // minimum n_callers
   const geneSearch             = ref('')
   const selectedCaller         = ref('all')
   const selectedClassification = ref('all')
@@ -63,7 +62,6 @@ export function useFilters(data) {
       if (selectedSample.value !== 'all' && row.sample !== selectedSample.value) return false
       if (selectedChrom.value  !== 'all' && row.CHROM  !== selectedChrom.value)  return false
       if (selectedType.value   !== 'all' && row.consensus_type !== selectedType.value) return false
-      if (row.n_callers < minConcordance.value) return false
       if (geneSearch.value && row.gene !== geneSearch.value) return false
       if (selectedCaller.value !== 'all') {
         const callers = row.callers ? row.callers.split(';').map(c => c.trim()) : []
@@ -78,14 +76,13 @@ export function useFilters(data) {
     selectedSample.value = 'all'
     selectedChrom.value  = 'all'
     selectedType.value   = 'all'
-    minConcordance.value         = 1
     geneSearch.value             = ''
     selectedCaller.value         = 'all'
     selectedClassification.value = 'all'
   }
 
   return {
-    selectedSample, selectedChrom, selectedType, minConcordance, geneSearch, selectedCaller,
+    selectedSample, selectedChrom, selectedType, geneSearch, selectedCaller,
     selectedClassification, availableSamples, availableChromosomes, availableGenes,
     availableCallers, availableClassifications, filtered, reset
   }

@@ -265,15 +265,17 @@ const option = computed(() => {
     _region: r,
   }))
 
-  // Bar highlight: gene-name match OR overlap with any selected target
-  const barData = !bedMode.value
-    ? regs.map(r => {
-        const byName = hGene && r.gene === hGene
-        const byPos  = !byName && targets.some(t => t.start && t.end && r.start <= t.end && r.end >= t.start)
-        if (!byName && !byPos) return null
-        return { value: r.avgDepth, itemStyle: { color: depthColor(r.avgDepth), opacity: 0.75 }, _region: r }
-      })
-    : []
+  // Bars for every region: light gray by default, darker gray for the selected
+  // gene/BED-region, red/blue when the region overlaps a DEL/DUP variant.
+  const barData = regs.map(r => {
+    const variant = targets.find(t => t.start && t.end && r.start <= t.end && r.end >= t.start)
+    if (variant) return { value: r.avgDepth, itemStyle: { color: typeColor(variant.type) }, _region: r }
+
+    const isSelected = bedMode.value
+      ? (selectedBedGene.value && r.bedName === selectedBedGene.value)
+      : (hGene && r.gene === hGene)
+    return { value: r.avgDepth, itemStyle: { color: isSelected ? '#6b7280' : '#e5e7eb' }, _region: r }
+  })
 
   // Build one annotation entry per target that overlaps regions on the current chrom
   const annotations = targets.map(t => {
@@ -285,6 +287,13 @@ const option = computed(() => {
     if (!indices.length) return null
     return { startIdx: indices[0], endIdx: indices[indices.length - 1], type: t.type }
   }).filter(Boolean)
+
+  // Match a hovered coverage region back to a selected/navigated CNV target
+  // (targets carry cn_labels/classification from the consensus table; coverage regions don't).
+  function findTargetForRegion(r) {
+    const norm = c => String(c).replace(/^chr/i, '')
+    return targets.find(t => t.start && t.end && norm(t.chrom) === norm(r.chrom) && r.start <= t.end && r.end >= t.start)
+  }
 
   return {
     backgroundColor: 'transparent',
@@ -300,7 +309,11 @@ const option = computed(() => {
         const label = bedMode.value ? (r.bedName || r.gene || '') : (r.gene || '')
         const chromStr = r.chrom ? `chr${r.chrom}: ` : ''
         const pos = `${r.start.toLocaleString()}–${r.end.toLocaleString()}`
-        return `${chromStr}${pos}<br/>${label ? `<b>${label}</b><br/>` : ''}Avg depth: <b>${r.avgDepth.toFixed(1)}×</b>`
+        let html = `${chromStr}${pos}<br/>${label ? `<b>${label}</b><br/>` : ''}Avg depth: <b>${r.avgDepth.toFixed(1)}×</b>`
+        const t = findTargetForRegion(r)
+        if (t?.classification) html += `<br/>Classification: <b>${t.classification}</b>`
+        if (t?.cnLabels)       html += `<br/>CN labels: <b>${t.cnLabels}</b>`
+        return html
       }
     },
     dataZoom: [
@@ -335,8 +348,8 @@ const option = computed(() => {
       min: 0,
       max: (() => {
         const sorted = regs.map(r => r.avgDepth).sort((a, b) => a - b)
-        const p95 = sorted[Math.floor(sorted.length * 0.95)] ?? sorted[sorted.length - 1] ?? 120
-        return Math.max(120, Math.ceil(p95 * 1.2 / 10) * 10)
+        const p95 = sorted[Math.floor(sorted.length * 0.95)] ?? sorted[sorted.length - 1] ?? 160
+        return Math.max(160, Math.ceil(p95 * 1.2 / 10) * 10)
       })(),
     },
     series: [
@@ -399,6 +412,7 @@ const option = computed(() => {
     {
       type: 'line',
       data: lineData,
+      z: 4,
       symbol: 'circle',
       symbolSize: 6,
       lineStyle: { color: '#21a8c2', width: 1.5 },
@@ -408,14 +422,9 @@ const option = computed(() => {
         symbol: 'none',
         data: [
           {
-            yAxis: 20,
-            lineStyle: { color: '#ef4444', type: 'dashed', width: 1.5 },
-            label: { position: 'insideStartTop', formatter: '20×', color: '#ef4444', fontSize: 10 }
-          },
-          {
-            yAxis: 100,
-            lineStyle: { color: '#f59e0b', type: 'dashed', width: 1.5 },
-            label: { position: 'insideStartTop', formatter: '100×', color: '#f59e0b', fontSize: 10 }
+            yAxis: 150,
+            lineStyle: { color: '#eab308', type: 'dashed', width: 1.5 },
+            label: { position: 'insideStartTop', formatter: '150×', color: '#eab308', fontSize: 10 }
           }
         ]
       }
@@ -533,6 +542,12 @@ const option = computed(() => {
             <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#ef4444]"></span>≤ 20×</span>
             <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#f59e0b]"></span>20–100×</span>
             <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#6b7280]"></span>&gt; 100×</span>
+          </span>
+          <span class="flex items-center gap-3 text-xs">
+            <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#e5e7eb]"></span>Other regions</span>
+            <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#6b7280]"></span>Selected gene</span>
+            <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#ef4444]"></span>DEL</span>
+            <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#3b82f6]"></span>DUP</span>
           </span>
         </template>
       </div>

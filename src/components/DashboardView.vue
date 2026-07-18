@@ -20,7 +20,6 @@ const {
   selectedSample,
   selectedChrom,
   selectedType,
-  minConcordance,
   geneSearch,
   selectedCaller,
   selectedClassification,
@@ -145,8 +144,6 @@ function onTableNavigate(targets) {
           @update:chrom="selectedChrom = $event"
           :type="selectedType"
           @update:type="selectedType = $event"
-          :concordance="minConcordance"
-          @update:concordance="minConcordance = $event"
           :caller="selectedCaller"
           @update:caller="selectedCaller = $event"
           :caller-list="availableCallers"
@@ -189,7 +186,7 @@ function onTableNavigate(targets) {
               <h3 class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">Data Table</h3>
               <ChartInfo
                 file="merged_target_consensus.tsv"
-                :columns="['sample','CHROM','START','END','GFT_genes','consensus_type','n_callers','callers','Classification']"
+                :columns="['sample','CHROM','START','END','genes','type','n_callers','callers','classifications','target_names']"
                 description="Lists all CNV calls passing the current filters. Each row is one consensus CNV event. The Callers column shows how many tools detected it; Classification shows the clinical significance. Sortable by any column; 6 rows per page."
               />
             </div>
@@ -202,7 +199,7 @@ function onTableNavigate(targets) {
               <h3 class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">DEL / DUP Pie Chart</h3>
               <ChartInfo
                 file="merged_target_consensus.tsv"
-                :columns="['consensus_type','CHROM']"
+                :columns="['type','CHROM']"
                 description="Nested pie chart. Inner ring: total DEL vs DUP counts across all filtered targets. Outer ring: per-chromosome breakdown, colored by type (light red = DEL, light blue = DUP). Both rings reflect active filters."
               />
             </div>
@@ -217,9 +214,9 @@ function onTableNavigate(targets) {
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">Genome Coverage</h3>
             <ChartInfo
-              :file="['*.region_coverage.tsv']"
-              :columns="['chrom','region_start','region_end','gene','total_depth_sum','region_length','bases_covered','fraction_covered']"
-              description="Average read depth per target region for the selected sample and gene. Each bar is one exon/target region. Depth color: red ≤ 20×, amber 20–100×, grey > 100×. You can also upload a BED file to visualize coverage for custom regions instead of a gene."
+              :file="['*.region_coverage.tsv', 'merged_target_consensus.tsv']"
+              :columns="['chrom','start','end','gene','avg_coverage','region_length','bases_covered','fraction_covered','cn_labels','classifications']"
+              description="Average read depth per target region for the selected sample and gene. Each bar is one exon/target region. Depth color: red ≤ 20×, amber 20–100×, grey > 100×. Hovering a region that overlaps the selected table row also shows its per-caller CN labels and classification. You can also upload a BED file to visualize coverage for custom regions instead of a gene."
             />
           </div>
           <GenomeCoverage

@@ -24,8 +24,8 @@ export const coverageGeneList = computed(() => {
 })
 
 // ── TSV → compact format parser (runs in browser at runtime) ───────────────────
-// New format: 8 columns, no header
-// chrom  start  end  gene  total_depth_sum  region_length  bases_covered  fraction_covered
+// 8 columns, no header
+// chrom  start  end  gene  avg_coverage  region_length  bases_covered  fraction_covered
 function parseCompact(text) {
   const geneMap = {}
   const lines   = text.split('\n')
@@ -39,10 +39,9 @@ function parseCompact(text) {
     const start        = parseInt(cols[1])
     const end          = parseInt(cols[2])
     const gene         = cols[3]
-    const totalDepth   = parseInt(cols[4])
+    const avgDepth      = parseFloat(cols[4]) || 0
     const regionLength = parseInt(cols[5])
     const fractionCovered = parseFloat(cols[7])
-    const avgDepth     = regionLength > 0 ? totalDepth / regionLength : 0
 
     if (!geneMap[gene]) geneMap[gene] = []
     geneMap[gene].push({ chrom, start, end, gene, avgDepth, regionLength, fractionCovered })

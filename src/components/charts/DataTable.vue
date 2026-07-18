@@ -38,7 +38,10 @@ const pages = computed(() => Math.max(1, Math.ceil(sorted.value.length / PAGE)))
 const pageRows = computed(() => sorted.value.slice(page.value * PAGE, (page.value + 1) * PAGE));
 
 function rowToTarget(r) {
-  return { gene: r.gene, chrom: r.CHROM, start: r.START, end: r.END, sample: r.sample, type: r.consensus_type };
+  return {
+    gene: r.gene, chrom: r.CHROM, start: r.START, end: r.END, sample: r.sample, type: r.consensus_type,
+    classification: r.Classification, cnLabels: r.cn_labels,
+  };
 }
 
 watch(
@@ -64,6 +67,13 @@ const classColor = cls => {
   return 'text-gray-500 bg-gray-50'
 }
 
+// "GENE:CHROM:START-END:exon3;GENE:CHROM:START-END:exon3" → "exon3" (unique, order preserved)
+function affectedExons(targetNames) {
+  if (!targetNames) return '';
+  const exons = targetNames.split(';').map(t => t.split(':').pop());
+  return [...new Set(exons)].join(', ');
+}
+
 const cols = [
   { key: "sample",         label: "Sample" },
   { key: "CHROM",          label: "Chr" },
@@ -73,6 +83,7 @@ const cols = [
   { key: "consensus_type", label: "Type" },
   { key: "n_callers",      label: "Callers" },
   { key: "Classification", label: "Classification", noSort: true },
+  { key: "target_names",   label: "Affected exons", noSort: true },
 ];
 
 function toggleRow(row) {
@@ -148,6 +159,9 @@ function toggleRow(row) {
               {{ row.Classification }}
             </span>
             <span v-else class="text-gray-300">—</span>
+          </td>
+          <td class="px-3 py-2 text-gray-500 text-[11px] max-w-[220px] truncate" :title="row.target_names">
+            {{ affectedExons(row.target_names) || '—' }}
           </td>
         </tr>
       </tbody>
