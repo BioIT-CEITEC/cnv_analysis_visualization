@@ -27,6 +27,7 @@ export function useData() {
               gene:           r.genes           || r.GFT_genes      || '',
               consensus_type: r.type            || r.consensus_type || '',
               Classification: r.classifications || r.Classification || '',
+              dosage_sensitive_genes: r.dosage_sensitive_genes || r['Known or predicted dosage-sensitive genes'] || '',
               START,
               END,
               n_callers:   parseInt(r.n_callers) || 0,

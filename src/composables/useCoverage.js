@@ -6,11 +6,19 @@ const parsedCache      = {}       // { sampleId: { gene: [{chrom,start,end,gene,
 const currentSample    = ref('')
 export const coverageSelectedGene = ref('')
 
+// Cohort-wide average depth per region, computed lazily across every loaded sample.
+// { 'chrom:start-end': avgDepthAcrossCohort } | null (not computed yet)
+const cohortAverageMap     = ref(null)
+const cohortAverageLoading = ref(false)
+const cohortAverageError   = ref('')
+
 /** Called from App.vue after the user selects a folder. */
 export function setCoverageFiles(map) {
   coverageFilesMap.value = map
   Object.keys(parsedCache).forEach(k => delete parsedCache[k])
   currentSample.value = ''
+  cohortAverageMap.value = null
+  cohortAverageError.value = ''
 }
 
 export const coverageSampleList = computed(() =>
@@ -144,5 +152,52 @@ export function useCoverage() {
     }
   }
 
-  return { coverageGeneList, getGeneData, getRegionData, loading, error, loaded, load, currentSample }
+  const cohortAverageReady = computed(() => !!cohortAverageMap.value)
+
+  /** Computes, once per loaded dataset, the average depth per region across every sample. */
+  async function loadCohortAverage() {
+    if (cohortAverageMap.value || cohortAverageLoading.value) return
+    const files = Object.values(coverageFilesMap.value)
+    if (!files.length) return
+
+    cohortAverageLoading.value = true
+    cohortAverageError.value   = ''
+    try {
+      const sums = {} // 'chrom:start-end' → { sum, count }
+      for (const file of files) {
+        const text = await file.text()
+        for (const line of text.split('\n')) {
+          if (!line) continue
+          const cols = line.split('\t')
+          if (cols.length < 8) continue
+          const avgDepth = parseFloat(cols[4]) || 0
+          const key = `${cols[0]}:${cols[1]}-${cols[2]}`
+          const bucket = sums[key] || (sums[key] = { sum: 0, count: 0 })
+          bucket.sum   += avgDepth
+          bucket.count += 1
+        }
+      }
+      const result = {}
+      for (const [key, { sum, count }] of Object.entries(sums)) {
+        result[key] = count > 0 ? sum / count : 0
+      }
+      cohortAverageMap.value = result
+    } catch (e) {
+      cohortAverageError.value = `Failed to compute cohort average: ${e.message}`
+    } finally {
+      cohortAverageLoading.value = false
+    }
+  }
+
+  /** Average depth for a region across the whole cohort, or null if not (yet) available. */
+  function getCohortAverage(chrom, start, end) {
+    if (!cohortAverageMap.value) return null
+    const v = cohortAverageMap.value[`${chrom}:${start}-${end}`]
+    return v === undefined ? null : v
+  }
+
+  return {
+    coverageGeneList, getGeneData, getRegionData, loading, error, loaded, load, currentSample,
+    loadCohortAverage, getCohortAverage, cohortAverageReady, cohortAverageLoading, cohortAverageError,
+  }
 }

@@ -1,8 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useData } from './composables/useData.js'
-import { setCoverageFiles, useCoverage } from './composables/useCoverage.js'
-import { selectedSample } from './composables/useFilters.js'
+import { setCoverageFiles } from './composables/useCoverage.js'
 import LoadingScreen from './components/LoadingScreen.vue'
 import DashboardView from './components/DashboardView.vue'
 import ceitecLogo from './assets/ceitec-logo.png'
@@ -34,10 +33,8 @@ async function loadDefaultSample() {
     'sample105': makeFile('sample105.region_coverage.tsv', sampleCov105Raw),
   })
   await load(makeFile('merged_target_consensus.tsv', sampleCnvRaw))
-  // Pre-select first sample so the genome coverage chart shows immediately
-  const { load: loadCov } = useCoverage()
-  await loadCov('sample57')
-  selectedSample.value = 'sample57'
+  // Leave selectedSample at its default ('all') so the dashboard opens on the
+  // cohort summary, rather than forcing a single sample's coverage view.
 }
 
 async function onFolderSelected(e) {

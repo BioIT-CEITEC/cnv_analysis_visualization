@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import ceitecLogo from "../assets/ceitec-logo.png";
 import { useFilters, CHROM_ORDER } from "../composables/useFilters.js";
 import { coverageSampleList } from "../composables/useCoverage.js";
@@ -10,6 +10,7 @@ import CallerConcordance from "./charts/CallerConcordance.vue";
 import CopyNumberScatter from "./charts/CopyNumberScatter.vue";
 import DataTable from "./charts/DataTable.vue";
 import GenomeCoverage from "./charts/GenomeCoverage.vue";
+import CohortTopGenes from "./charts/CohortTopGenes.vue";
 import ChartInfo from "./ChartInfo.vue";
 
 const props = defineProps({ data: Array, filename: String });
@@ -18,16 +19,7 @@ const dataRef = computed(() => props.data);
 
 const {
   selectedSample,
-  selectedChrom,
-  selectedType,
-  geneSearch,
-  selectedCaller,
-  selectedClassification,
   availableSamples,
-  availableChromosomes,
-  availableGenes,
-  availableCallers,
-  availableClassifications,
   filtered,
   reset,
 } = useFilters(dataRef);
@@ -43,15 +35,10 @@ const stats = computed(() => {
   };
 });
 
-// Auto-switch sample when selected gene doesn't exist in the current sample
-watch(geneSearch, (gene) => {
-  if (!gene || !selectedSample.value || selectedSample.value === 'all') return
-  const hasGene = dataRef.value.some(r => r.gene === gene && r.sample === selectedSample.value)
-  if (!hasGene) {
-    const match = dataRef.value.find(r => r.gene === gene)
-    if (match) selectedSample.value = match.sample
-  }
-})
+// "All (cohort)" mode: show a cohort-wide gene summary instead of per-sample coverage,
+// and give the table more room since there's more to browse across every sample.
+const isCohortView = computed(() => selectedSample.value === 'all');
+const tablePageSize = computed(() => isCohortView.value ? 10 : 6);
 
 const sampleList = coverageSampleList;
 const sidebarOpen = ref(true);
@@ -61,6 +48,10 @@ const coverageJumpTo  = ref(null)
 const coverageSection = ref(null)
 
 function onTableNavigate(targets) {
+  // In cohort ("All") view the table's own data changes (it now spans every sample),
+  // which re-fires its auto-select-first-row navigation — don't let that silently
+  // kick us back to a single sample and out of the cohort summary.
+  if (isCohortView.value) return
   coverageJumpTo.value = targets && targets.length ? targets : null
   if (targets && targets.length) {
     const last = targets[targets.length - 1]
@@ -139,20 +130,6 @@ function onTableNavigate(targets) {
           :samples="availableSamples"
           :sample="selectedSample"
           @update:sample="selectedSample = $event"
-          :chromosomes="availableChromosomes"
-          :chrom="selectedChrom"
-          @update:chrom="selectedChrom = $event"
-          :type="selectedType"
-          @update:type="selectedType = $event"
-          :caller="selectedCaller"
-          @update:caller="selectedCaller = $event"
-          :caller-list="availableCallers"
-          :gene-list="availableGenes"
-          :gene="geneSearch"
-          @update:gene="geneSearch = $event"
-          :classification="selectedClassification"
-          @update:classification="selectedClassification = $event"
-          :classification-list="availableClassifications"
           :result-count="filtered.length"
           @reset="reset"
         />
@@ -187,11 +164,11 @@ function onTableNavigate(targets) {
               <ChartInfo
                 file="merged_target_consensus.tsv"
                 :columns="['sample','CHROM','START','END','genes','type','n_callers','callers','classifications','target_names']"
-                description="Lists all CNV calls passing the current filters. Each row is one consensus CNV event. The Callers column shows how many tools detected it; Classification shows the clinical significance. Sortable by any column; 6 rows per page."
+                description="Lists all CNV calls passing the current filters. Each row is one consensus CNV event. The Callers column shows how many tools detected it; Classification shows the clinical significance. Sortable by any column, with a text filter per column. Shows 10 rows per page in cohort ('All') view, 6 otherwise."
               />
             </div>
             <div style="min-width: 560px">
-              <DataTable :data="filtered" @navigate="onTableNavigate" />
+              <DataTable :data="filtered" :page-size="tablePageSize" :show-sample="isCohortView" @navigate="onTableNavigate" />
             </div>
           </div>
           <div class="bg-white border border-gray-200 rounded-xl p-5 overflow-x-auto">
@@ -209,17 +186,28 @@ function onTableNavigate(targets) {
           </div>
         </div>
 
-        <!-- Genome Coverage -->
+        <!-- Genome Coverage (per-sample) / Cohort Gene Summary (when "All" is selected) -->
         <div ref="coverageSection" class="bg-white border border-gray-200 rounded-xl p-5 overflow-x-auto">
           <div class="flex items-center justify-between mb-4">
-            <h3 class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">Genome Coverage</h3>
+            <h3 class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">
+              {{ isCohortView ? 'Cohort Gene Summary' : 'Genome Coverage' }}
+            </h3>
             <ChartInfo
+              v-if="isCohortView"
+              file="merged_target_consensus.tsv"
+              :columns="['genes','type']"
+              description="Shown when 'All (cohort)' is selected as the sample. Horizontal stacked bar of the 15 most frequently affected genes across every sample in the loaded dataset, split into DEL (red) and DUP (blue) call counts. Select a specific sample to go back to its Genome Coverage plot."
+            />
+            <ChartInfo
+              v-else
               :file="['*.region_coverage.tsv', 'merged_target_consensus.tsv']"
               :columns="['chrom','start','end','gene','avg_coverage','region_length','bases_covered','fraction_covered','cn_labels','classifications']"
-              description="Average read depth per target region for the selected sample and gene. Each bar is one exon/target region. Depth color: red ≤ 20×, amber 20–100×, grey > 100×. Hovering a region that overlaps the selected table row also shows its per-caller CN labels and classification. You can also upload a BED file to visualize coverage for custom regions instead of a gene."
+              description="Average read depth per target region for the selected sample and gene. Each bar is one exon/target region. Depth color: red ≤ 20×, amber 20–100×, grey > 100×. Hovering a region that overlaps the selected table row also shows its per-caller CN labels and classification. Toggle 'Cohort avg' to overlay a transparent red line showing the average depth per region across every loaded sample. You can also upload a BED file to visualize coverage for custom regions instead of a gene."
             />
           </div>
+          <CohortTopGenes v-if="isCohortView" :data="filtered" />
           <GenomeCoverage
+            v-else
             :sample-list="sampleList"
             :active-sample-id="selectedSample"
             :jump-to="coverageJumpTo"

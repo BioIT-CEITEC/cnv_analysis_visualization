@@ -6,24 +6,9 @@
 <script setup>
 import { computed } from 'vue'
 import { VChart } from '../../utils/echarts.js'
+import { callerLabel } from '../../utils/callers.js'
 
 const props = defineProps({ data: Array })
-
-const LABEL_MAP = {
-  cnvkit:      'CNVkit',
-  exomedepth:  'ED',
-  cnmops:      'cnMOPS',
-  panelcnmops: 'pCNMOPS',
-  freec:       'FreeC',
-  xhmm:        'XHMM',
-  conifer:     'CoNIFER',
-  jabcontool:  'JaCoNTool',
-  gatk_gcnv:   'GATK-gCNV',
-}
-
-function callerLabel(raw) {
-  return LABEL_MAP[raw.trim()] || raw.trim()
-}
 
 const option = computed(() => {
   const combos = {}

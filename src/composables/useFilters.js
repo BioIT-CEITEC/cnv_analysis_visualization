@@ -16,74 +16,18 @@ export const CHROM_ORDER = [
 export const selectedSample = ref('all')
 
 export function useFilters(data) {
-  const selectedChrom          = ref('all')
-  const selectedType           = ref('all')   // 'all' | 'DEL' | 'DUP'
-  const geneSearch             = ref('')
-  const selectedCaller         = ref('all')
-  const selectedClassification = ref('all')
-
   // Samples present in the data
   const availableSamples = computed(() =>
     [...new Set(data.value.map(r => r.sample))].filter(Boolean).sort()
   )
 
-  // Genes present in the data
-  const availableGenes = computed(() =>
-    [...new Set(data.value.map(r => r.gene))].filter(Boolean).sort()
-  )
-
-  // Chromosomes present in the data, in correct genomic order
-  const availableChromosomes = computed(() => {
-    const inData = new Set(data.value.map(r => r.CHROM))
-    return CHROM_ORDER.filter(c => inData.has(c))
-  })
-
-  // Unique classifications present in the data
-  const availableClassifications = computed(() =>
-    [...new Set(data.value.map(r => r.Classification).filter(Boolean))].sort()
-  )
-
-  // Unique callers present across all rows (derived from the 'callers' field)
-  const availableCallers = computed(() => {
-    const set = new Set()
-    for (const row of data.value) {
-      if (row.callers) {
-        for (const c of row.callers.split(';')) {
-          const trimmed = c.trim()
-          if (trimmed) set.add(trimmed)
-        }
-      }
-    }
-    return [...set].sort()
-  })
-
   const filtered = computed(() =>
-    data.value.filter(row => {
-      if (selectedSample.value !== 'all' && row.sample !== selectedSample.value) return false
-      if (selectedChrom.value  !== 'all' && row.CHROM  !== selectedChrom.value)  return false
-      if (selectedType.value   !== 'all' && row.consensus_type !== selectedType.value) return false
-      if (geneSearch.value && row.gene !== geneSearch.value) return false
-      if (selectedCaller.value !== 'all') {
-        const callers = row.callers ? row.callers.split(';').map(c => c.trim()) : []
-        if (!callers.includes(selectedCaller.value)) return false
-      }
-      if (selectedClassification.value !== 'all' && row.Classification !== selectedClassification.value) return false
-      return true
-    })
+    data.value.filter(row => selectedSample.value === 'all' || row.sample === selectedSample.value)
   )
 
   function reset() {
     selectedSample.value = 'all'
-    selectedChrom.value  = 'all'
-    selectedType.value   = 'all'
-    geneSearch.value             = ''
-    selectedCaller.value         = 'all'
-    selectedClassification.value = 'all'
   }
 
-  return {
-    selectedSample, selectedChrom, selectedType, geneSearch, selectedCaller,
-    selectedClassification, availableSamples, availableChromosomes, availableGenes,
-    availableCallers, availableClassifications, filtered, reset
-  }
+  return { selectedSample, availableSamples, filtered, reset }
 }

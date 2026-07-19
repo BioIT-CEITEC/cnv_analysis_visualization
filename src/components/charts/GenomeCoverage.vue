@@ -15,7 +15,14 @@ const props = defineProps({
   jumpTo:         { default: null }, // Array of { gene, chrom, start, end, type } | null
 })
 
-const { getGeneData, getRegionData, loading, error, loaded, load, currentSample } = useCoverage()
+const {
+  getGeneData, getRegionData, loading, error, loaded, load, currentSample,
+  loadCohortAverage, getCohortAverage, cohortAverageReady, cohortAverageLoading, cohortAverageError,
+} = useCoverage()
+
+// Cohort-average overlay — off by default; computed lazily the first time it's enabled
+const showCohortAvg = ref(false)
+watch(showCohortAvg, (on) => { if (on) loadCohortAverage() })
 
 const chartRef        = ref(null)
 const selectedChrom   = ref('')
@@ -46,11 +53,13 @@ function onGeneBlur() {
 }
 function selectCoverageGene(g) {
   coverageSelectedGene.value = g
+  if (!g) highlightGene.value = ''
   geneDropdownOpen.value = false
   geneSearch.value = g
 }
 function clearCoverageGene() {
   coverageSelectedGene.value = ''
+  highlightGene.value = ''
   geneSearch.value = ''
   geneDropdownOpen.value = true
   nextTick(() => geneInputRef.value?.focus())
@@ -110,8 +119,11 @@ watch(
   { immediate: true }
 )
 
-// Regions for gene mode: flat list of {chrom, start, end, gene, avgDepth, regionLength, fractionCovered}
-const allGeneRegions = computed(() => getGeneData(coverageSelectedGene.value))
+// Regions for gene mode: flat list of {chrom, start, end, gene, avgDepth, regionLength, fractionCovered}.
+// Always the full set — the selected gene only drives highlighting + zoom (see the
+// coverageSelectedGene watcher below), not which regions are shown, so surrounding
+// target regions stay visible for context instead of being hidden.
+const allGeneRegions = computed(() => getGeneData(''))
 
 // BED regions filtered by selected gene (name column)
 const activeBedRegions = computed(() => {
@@ -134,14 +146,29 @@ const availableChroms = computed(() =>
   )
 )
 
-// Reset local chrom when gene or BED regions change
-watch([coverageSelectedGene, allBedRegions], () => {
+// Reset local chrom when the BED region set changes (unrelated to the gene combobox below)
+watch(allBedRegions, () => {
   selectedChrom.value = availableChroms.value[0] ?? ''
+  resetZoom()
 })
 watch(availableChroms, (chroms) => {
   if (!chroms.includes(selectedChrom.value)) {
     selectedChrom.value = chroms[0] ?? ''
   }
+  resetZoom()
+})
+
+// Picking a gene from the coverage combobox highlights it and centers the view on it —
+// same behavior as jumping from the table — without hiding the surrounding target regions.
+// Clearing the gene (selectCoverageGene('') / clearCoverageGene()) resets the highlight itself,
+// so this only needs to handle the "a gene was picked" case.
+watch(coverageSelectedGene, async (gene) => {
+  if (bedMode.value || !gene) return
+  highlightGene.value = gene
+  const geneChrom = allRegions.value.find(r => r.gene === gene)?.chrom
+  if (geneChrom) selectedChrom.value = geneChrom
+  await nextTick()
+  applyZoom()
 })
 
 // Regions filtered to the selected chromosome
@@ -177,11 +204,48 @@ function applyZoom() {
   const total = regs.length
   const s = Math.max(0, sorted[0] - pad)
   const e = Math.min(total - 1, sorted[sorted.length - 1] + pad)
-  chartRef.value.dispatchAction({
-    type: 'dataZoom',
-    start: (s / total) * 100,
-    end:   (e / total) * 100,
-  })
+  setZoom((s / total) * 100, (e / total) * 100)
+}
+
+// ── Zoom controls ────────────────────────────────────────────────────────────
+const zoomRange = ref({ start: 0, end: 100 })
+
+// Keep zoomRange in sync with mouse-wheel/slider/box interactions on the chart itself
+function onDataZoom(params) {
+  const info = params?.batch ? params.batch[0] : params
+  if (info && typeof info.start === 'number') {
+    zoomRange.value = { start: info.start, end: info.end }
+  }
+}
+
+function setZoom(start, end) {
+  start = Math.max(0, Math.min(100, start))
+  end   = Math.max(0, Math.min(100, end))
+  if (end - start < 1) { // guard against a degenerate/zero-width range
+    const mid = (start + end) / 2
+    start = Math.max(0, mid - 0.5)
+    end   = Math.min(100, mid + 0.5)
+  }
+  zoomRange.value = { start, end }
+  chartRef.value?.dispatchAction({ type: 'dataZoom', start, end })
+}
+
+function zoomIn() {
+  const { start, end } = zoomRange.value
+  const mid  = (start + end) / 2
+  const span = Math.max((end - start) / 2, 1)
+  setZoom(mid - span / 2, mid + span / 2)
+}
+
+function zoomOut() {
+  const { start, end } = zoomRange.value
+  const mid  = (start + end) / 2
+  const span = Math.min((end - start) * 2, 100)
+  setZoom(mid - span / 2, mid + span / 2)
+}
+
+function resetZoom() {
+  setZoom(0, 100)
 }
 
 // Resolve the correct chrom from coverage data, normalising 'chr' prefix differences
@@ -265,6 +329,12 @@ const option = computed(() => {
     _region: r,
   }))
 
+  // Cohort-average overlay: same region, averaged across every loaded sample
+  const showCohort = showCohortAvg.value && cohortAverageReady.value
+  const cohortLineData = showCohort
+    ? regs.map(r => ({ value: getCohortAverage(r.chrom, r.start, r.end), _region: r }))
+    : []
+
   // Bars for every region: light gray by default, darker gray for the selected
   // gene/BED-region, red/blue when the region overlaps a DEL/DUP variant.
   const barData = regs.map(r => {
@@ -310,9 +380,14 @@ const option = computed(() => {
         const chromStr = r.chrom ? `chr${r.chrom}: ` : ''
         const pos = `${r.start.toLocaleString()}–${r.end.toLocaleString()}`
         let html = `${chromStr}${pos}<br/>${label ? `<b>${label}</b><br/>` : ''}Avg depth: <b>${r.avgDepth.toFixed(1)}×</b>`
+        if (showCohort) {
+          const cohortAvg = getCohortAverage(r.chrom, r.start, r.end)
+          if (cohortAvg !== null) html += `<br/>Cohort avg: <b>${cohortAvg.toFixed(1)}×</b>`
+        }
         const t = findTargetForRegion(r)
         if (t?.classification) html += `<br/>Classification: <b>${t.classification}</b>`
         if (t?.cnLabels)       html += `<br/>CN labels: <b>${t.cnLabels}</b>`
+        if (t) html += `<br/>Dosage sensitive gene: <b>${t.dosageSensitive ? 'Yes' : 'No'}</b>`
         return html
       }
     },
@@ -428,7 +503,16 @@ const option = computed(() => {
           }
         ]
       }
-    }]
+    },
+    // Cohort-average overlay — transparent red, only added when the toggle is on
+    ...(showCohort ? [{
+      type: 'line',
+      data: cohortLineData,
+      z: 6,
+      symbol: 'none',
+      connectNulls: true,
+      lineStyle: { color: 'rgba(239,68,68,0.55)', width: 2 },
+    }] : [])]
   }
 })
 
@@ -530,6 +614,15 @@ const option = computed(() => {
         <span v-if="loading" class="text-xs text-gray-400 animate-pulse">Loading coverage data…</span>
         <span v-if="error" class="text-xs text-red-500">{{ error }}</span>
 
+        <!-- Cohort-average overlay toggle -->
+        <label class="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none">
+          <input type="checkbox" v-model="showCohortAvg" class="rounded border-gray-300 text-red-400 focus:ring-red-300 focus:ring-offset-0" />
+          <span class="inline-block w-3 h-3 rounded-sm" style="background: rgba(239,68,68,0.55)"></span>
+          Cohort avg
+        </label>
+        <span v-if="showCohortAvg && cohortAverageLoading" class="text-xs text-gray-400 animate-pulse">Computing cohort average…</span>
+        <span v-if="cohortAverageError" class="text-xs text-red-500">{{ cohortAverageError }}</span>
+
         <!-- Stats chips -->
         <template v-if="stats">
           <span class="text-xs text-gray-500">
@@ -550,6 +643,25 @@ const option = computed(() => {
             <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#3b82f6]"></span>DUP</span>
           </span>
         </template>
+
+        <!-- Zoom controls -->
+        <div v-if="regions.length" class="flex items-center gap-1 ml-auto">
+          <button
+            @click="zoomOut"
+            title="Zoom out"
+            class="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:border-teal-400 hover:text-teal-600 bg-white transition-colors"
+          >−</button>
+          <button
+            @click="zoomIn"
+            title="Zoom in"
+            class="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:border-teal-400 hover:text-teal-600 bg-white transition-colors"
+          >+</button>
+          <button
+            @click="resetZoom"
+            title="Reset zoom"
+            class="text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:border-teal-400 hover:text-teal-600 bg-white transition-colors"
+          >Reset</button>
+        </div>
       </div>
 
       <!-- Chart -->
@@ -559,6 +671,7 @@ const option = computed(() => {
         :option="option"
         autoresize
         style="width: 100%; height: 320px"
+        @datazoom="onDataZoom"
       />
 
       <!-- Empty state -->
