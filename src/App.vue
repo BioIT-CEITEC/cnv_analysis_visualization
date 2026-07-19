@@ -5,7 +5,7 @@ import { setCoverageFiles } from './composables/useCoverage.js'
 import LoadingScreen from './components/LoadingScreen.vue'
 import DashboardView from './components/DashboardView.vue'
 import ceitecLogo from './assets/ceitec-logo.png'
-import sampleCnvRaw      from './assets/sample/merged_target_consensus.tsv?raw'
+import sampleCnvRaw      from './assets/sample/all_samples_smoothed.tsv?raw'
 import sampleCov57Raw    from './assets/sample/sample57.region_coverage.tsv?raw'
 import sampleCov99Raw    from './assets/sample/sample99.region_coverage.tsv?raw'
 import sampleCov104Raw   from './assets/sample/sample104.region_coverage.tsv?raw'
@@ -32,7 +32,7 @@ async function loadDefaultSample() {
     'sample104': makeFile('sample104.region_coverage.tsv', sampleCov104Raw),
     'sample105': makeFile('sample105.region_coverage.tsv', sampleCov105Raw),
   })
-  await load(makeFile('merged_target_consensus.tsv', sampleCnvRaw))
+  await load(makeFile('all_samples_smoothed.tsv', sampleCnvRaw))
   // Leave selectedSample at its default ('all') so the dashboard opens on the
   // cohort summary, rather than forcing a single sample's coverage view.
 }
@@ -43,9 +43,9 @@ async function onFolderSelected(e) {
 
   folderError.value = ''
 
-  const cnvFile = files.find(f => f.name === 'merged_target_consensus.tsv')
+  const cnvFile = files.find(f => f.name === 'all_samples_smoothed.tsv')
   if (!cnvFile) {
-    folderError.value = 'Could not find merged_target_consensus.tsv in the selected folder.'
+    folderError.value = 'Could not find all_samples_smoothed.tsv in the selected folder.'
     return
   }
 
@@ -203,7 +203,7 @@ onMounted(() => {
 
         <!-- Required files note -->
         <div class="text-center space-y-1">
-          <p class="text-xs text-gray-400">Required: <code class="text-gray-500">merged_target_consensus.tsv</code></p>
+          <p class="text-xs text-gray-400">Required: <code class="text-gray-500">all_samples_smoothed.tsv</code></p>
           <p class="text-xs text-gray-400">Optional: <code class="text-gray-500">*.region_coverage.tsv</code></p>
         </div>
 

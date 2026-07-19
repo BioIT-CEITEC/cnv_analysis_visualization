@@ -1,7 +1,7 @@
 <!--
   Caller Concordance — horizontal bar chart.
   Groups CNV calls by which combination of callers detected them.
-  Uses the 'callers' semicolon-separated field from merged_target_consensus.tsv.
+  Uses the 'callers' semicolon-separated field from all_samples_smoothed.tsv.
 -->
 <script setup>
 import { computed } from 'vue'

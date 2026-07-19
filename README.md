@@ -78,7 +78,7 @@ Place your files in a single folder and select it using "Open Data Folder".
 
 ```
 my-data/
-├── merged_target_consensus.tsv
+├── all_samples_smoothed.tsv
 ├── SAMPLE_01.region_coverage.tsv
 ├── SAMPLE_02.region_coverage.tsv
 └── SAMPLE_03.region_coverage.tsv
