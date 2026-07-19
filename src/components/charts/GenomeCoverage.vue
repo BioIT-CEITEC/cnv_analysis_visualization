@@ -422,9 +422,16 @@ const option = computed(() => {
       splitLine: { lineStyle: { color: '#f3f4f6' } },
       min: 0,
       max: (() => {
-        const sorted = regs.map(r => r.avgDepth).sort((a, b) => a - b)
-        const p95 = sorted[Math.floor(sorted.length * 0.95)] ?? sorted[sorted.length - 1] ?? 160
-        return Math.max(160, Math.ceil(p95 * 1.2 / 10) * 10)
+        // True max of everything actually plotted (bars/line + cohort overlay when shown),
+        // so no bar gets clipped at the top — with a little headroom above it.
+        const values = regs.map(r => r.avgDepth)
+        if (showCohort) {
+          for (const r of cohortLineData) {
+            if (r.value !== null && r.value !== undefined) values.push(r.value)
+          }
+        }
+        const maxVal = values.length ? Math.max(...values) : 160
+        return Math.max(160, Math.ceil(maxVal * 1.1 / 10) * 10)
       })(),
     },
     series: [
