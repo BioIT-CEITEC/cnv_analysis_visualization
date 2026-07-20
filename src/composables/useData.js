@@ -1,6 +1,13 @@
 import { ref } from 'vue'
 import Papa from 'papaparse'
 
+// "CFH, NA" → "CFH" — drop placeholder "NA" entries from comma-separated gene lists so
+// they don't break exact gene-name matching against the coverage data (e.g. jump-to-gene).
+function cleanGeneList(raw) {
+  if (!raw) return ''
+  return raw.split(',').map(g => g.trim()).filter(g => g && g.toUpperCase() !== 'NA').join(', ')
+}
+
 export function useData() {
   const rows     = ref([])
   const filename = ref('')
@@ -24,7 +31,7 @@ export function useData() {
             const END   = parseInt(r.END)
             return {
               ...r,
-              gene:           r.genes           || r.GFT_genes      || '',
+              gene:           cleanGeneList(r.genes || r.GFT_genes || ''),
               consensus_type: r.type            || r.consensus_type || '',
               Classification: r.classifications || r.Classification || '',
               dosage_sensitive_genes: r.dosage_sensitive_genes || r['Known or predicted dosage-sensitive genes'] || '',

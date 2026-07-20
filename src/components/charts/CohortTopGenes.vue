@@ -1,13 +1,16 @@
 <!--
-  Cohort Gene Summary — shown instead of Genome Coverage when "All (cohort)" is selected.
-  Horizontal stacked bar of the 15 most frequently affected genes across every sample
-  in the loaded dataset, split into DEL (red) vs DUP (blue) call counts.
+  Top Affected Genes — horizontal stacked bar of the 15 most frequently affected genes
+  in the current view, split into DEL (red) vs DUP (blue) call counts. Shown both for a
+  single selected sample and, when "All (cohort)" is selected, across every sample.
 -->
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { VChart } from '../../utils/echarts.js'
 
 const props = defineProps({ data: Array })
+
+const chartRef = ref(null)
+defineExpose({ chartRef })
 
 const TOP_N = 15
 
@@ -78,6 +81,6 @@ const option = computed(() => {
 </script>
 
 <template>
-  <VChart v-if="topGenes.length" :option="option" autoresize style="width: 100%; height: 400px" />
+  <VChart v-if="topGenes.length" ref="chartRef" :option="option" autoresize style="width: 100%; height: 400px" />
   <div v-else class="h-[280px] flex items-center justify-center text-sm text-gray-400">No data</div>
 </template>

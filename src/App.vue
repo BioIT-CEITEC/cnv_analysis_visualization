@@ -4,6 +4,7 @@ import { useData } from './composables/useData.js'
 import { setCoverageFiles } from './composables/useCoverage.js'
 import LoadingScreen from './components/LoadingScreen.vue'
 import DashboardView from './components/DashboardView.vue'
+import AppFooter from './components/AppFooter.vue'
 import ceitecLogo from './assets/ceitec-logo.png'
 import sampleCnvRaw      from './assets/sample/all_samples_smoothed.tsv?raw'
 import sampleCov57Raw    from './assets/sample/sample57.region_coverage.tsv?raw'
@@ -151,10 +152,11 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen font-sans" style="background:#fff; color:#101828">
+  <div class="flex flex-col h-screen font-sans" style="background:#fff; color:#101828">
+   <div class="flex-1 min-h-0 overflow-hidden relative">
 
     <!-- ── Folder picker screen ── -->
-    <div v-if="!rows.length && !loading" class="min-h-screen relative overflow-hidden flex items-center justify-center">
+    <div v-if="!rows.length && !loading" class="h-full relative overflow-hidden flex items-center justify-center">
       <canvas ref="dotsCanvas" class="absolute inset-0 w-full h-full pointer-events-none" />
 
       <!-- Centered glass card -->
@@ -233,12 +235,16 @@ onMounted(() => {
 
     <LoadingScreen v-else-if="loading" />
 
-    <div v-else-if="error && !rows.length" class="flex flex-col items-center justify-center min-h-screen gap-4">
+    <div v-else-if="error && !rows.length" class="h-full flex flex-col items-center justify-center gap-4">
       <p class="text-red-400 text-sm">{{ error }}</p>
       <button @click="openPicker" class="text-sm underline" style="color:#7ac143">Try another folder</button>
     </div>
 
     <DashboardView v-else :data="rows" :filename="filename" />
+
+   </div>
+
+   <AppFooter />
   </div>
 </template>
 

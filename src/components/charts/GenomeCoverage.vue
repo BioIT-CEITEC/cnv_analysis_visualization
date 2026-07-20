@@ -1,8 +1,7 @@
 <!--
   Genome Coverage — per-region average depth line/area chart.
   Shows average read depth per target region for the selected gene/sample.
-  Reference lines: 20x (red dashed), 100x (amber dashed).
-  Depth color: red ≤ 20×, amber 20–100×, grey > 100×.
+  Reference line: 150x (yellow dashed).
 -->
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue'
@@ -16,7 +15,7 @@ const props = defineProps({
 })
 
 const {
-  getGeneData, getRegionData, loading, error, loaded, load, currentSample,
+  getGeneData, loading, error, loaded, load, currentSample,
   loadCohortAverage, getCohortAverage, cohortAverageReady, cohortAverageLoading, cohortAverageError,
 } = useCoverage()
 
@@ -24,10 +23,10 @@ const {
 const showCohortAvg = ref(false)
 watch(showCohortAvg, (on) => { if (on) loadCohortAverage() })
 
-const chartRef        = ref(null)
-const selectedChrom   = ref('')
-const selectedBedGene = ref('')
-const highlightGene   = ref('')
+const chartRef      = ref(null)
+defineExpose({ chartRef })
+const selectedChrom = ref('')
+const highlightGene = ref('')
 
 // Gene combobox
 const geneSearch       = ref('')
@@ -65,50 +64,6 @@ function clearCoverageGene() {
   nextTick(() => geneInputRef.value?.focus())
 }
 
-// BED mode
-const bedInput    = ref(null)
-const bedRegions  = ref([])   // [{chrom, start, end, name}]
-const bedFileName = ref('')
-
-function parseBed(text) {
-  return text.split('\n')
-    .filter(l => l && !l.startsWith('#') && !l.startsWith('track') && !l.startsWith('browser'))
-    .map(l => {
-      const cols = l.split('\t')
-      if (cols.length < 3) return null
-      const start = parseInt(cols[1])
-      const end   = parseInt(cols[2])
-      if (isNaN(start) || isNaN(end)) return null
-      return { chrom: cols[0], start, end, name: cols[3]?.trim() || `${cols[0]}:${start}-${end}` }
-    })
-    .filter(Boolean)
-}
-
-async function onBedFile(e) {
-  const file = e.target.files[0]
-  if (!file) return
-  const text = await file.text()
-  bedRegions.value  = parseBed(text)
-  bedFileName.value = file.name
-  selectedBedGene.value = ''
-  e.target.value = ''
-}
-
-function clearBed() {
-  bedRegions.value      = []
-  bedFileName.value     = ''
-  selectedBedGene.value = ''
-}
-
-function openBedPicker() {
-  bedInput.value?.click()
-}
-
-const bedMode = computed(() => bedRegions.value.length > 0)
-
-// Unique gene names from BED file (4th column used as gene name)
-const bedGeneList = computed(() => [...new Set(bedRegions.value.map(r => r.name))].sort())
-
 // Load coverage whenever the sidebar sample changes
 watch(
   () => props.activeSampleId,
@@ -119,25 +74,10 @@ watch(
   { immediate: true }
 )
 
-// Regions for gene mode: flat list of {chrom, start, end, gene, avgDepth, regionLength, fractionCovered}.
-// Always the full set — the selected gene only drives highlighting + zoom (see the
-// coverageSelectedGene watcher below), not which regions are shown, so surrounding
-// target regions stay visible for context instead of being hidden.
-const allGeneRegions = computed(() => getGeneData(''))
-
-// BED regions filtered by selected gene (name column)
-const activeBedRegions = computed(() => {
-  if (!selectedBedGene.value) return bedRegions.value
-  return bedRegions.value.filter(r => r.name === selectedBedGene.value)
-})
-
-// Regions for BED mode
-const allBedRegions = computed(() =>
-  bedMode.value ? getRegionData(activeBedRegions.value) : []
-)
-
-// Unified source — switches between gene and BED mode
-const allRegions = computed(() => bedMode.value ? allBedRegions.value : allGeneRegions.value)
+// All regions for the current sample. Always the full set — the selected gene only
+// drives highlighting + zoom (see the coverageSelectedGene watcher below), not which
+// regions are shown, so surrounding target regions stay visible for context.
+const allRegions = computed(() => getGeneData(''))
 
 // Chromosomes available in the current view
 const availableChroms = computed(() =>
@@ -146,11 +86,6 @@ const availableChroms = computed(() =>
   )
 )
 
-// Reset local chrom when the BED region set changes (unrelated to the gene combobox below)
-watch(allBedRegions, () => {
-  selectedChrom.value = availableChroms.value[0] ?? ''
-  resetZoom()
-})
 watch(availableChroms, (chroms) => {
   if (!chroms.includes(selectedChrom.value)) {
     selectedChrom.value = chroms[0] ?? ''
@@ -163,7 +98,7 @@ watch(availableChroms, (chroms) => {
 // Clearing the gene (selectCoverageGene('') / clearCoverageGene()) resets the highlight itself,
 // so this only needs to handle the "a gene was picked" case.
 watch(coverageSelectedGene, async (gene) => {
-  if (bedMode.value || !gene) return
+  if (!gene) return
   highlightGene.value = gene
   const geneChrom = allRegions.value.find(r => r.gene === gene)?.chrom
   if (geneChrom) selectedChrom.value = geneChrom
@@ -336,14 +271,12 @@ const option = computed(() => {
     : []
 
   // Bars for every region: light gray by default, darker gray for the selected
-  // gene/BED-region, red/blue when the region overlaps a DEL/DUP variant.
+  // gene, red/blue when the region overlaps a DEL/DUP variant.
   const barData = regs.map(r => {
     const variant = targets.find(t => t.start && t.end && r.start <= t.end && r.end >= t.start)
     if (variant) return { value: r.avgDepth, itemStyle: { color: typeColor(variant.type) }, _region: r }
 
-    const isSelected = bedMode.value
-      ? (selectedBedGene.value && r.bedName === selectedBedGene.value)
-      : (hGene && r.gene === hGene)
+    const isSelected = hGene && r.gene === hGene
     return { value: r.avgDepth, itemStyle: { color: isSelected ? '#6b7280' : '#e5e7eb' }, _region: r }
   })
 
@@ -376,10 +309,10 @@ const option = computed(() => {
       formatter(params) {
         const p = params.find(p => p.data?._region) || params[0]
         const r = p.data._region
-        const label = bedMode.value ? (r.bedName || r.gene || '') : (r.gene || '')
+        const label = r.gene || ''
         const chromStr = r.chrom ? `chr${r.chrom}: ` : ''
         const pos = `${r.start.toLocaleString()}–${r.end.toLocaleString()}`
-        let html = `${chromStr}${pos}<br/>${label ? `<b>${label}</b><br/>` : ''}Avg depth: <b>${r.avgDepth.toFixed(1)}×</b>`
+        let html = `${chromStr}${pos}<br/>${label ? `Gene name: <b>${label}</b><br/>` : ''}Avg depth: <b>${r.avgDepth.toFixed(1)}×</b>`
         if (showCohort) {
           const cohortAvg = getCohortAverage(r.chrom, r.start, r.end)
           if (cohortAvg !== null) html += `<br/>Cohort avg: <b>${cohortAvg.toFixed(1)}×</b>`
@@ -537,7 +470,7 @@ const option = computed(() => {
         <path d="M15.042 21.672L13.684 16.6m0 0l-2.51 2.225.569-9.47 5.227 7.917-3.286-.672zM12 2.25V4.5m5.834.166l-1.591 1.591M20.25 10.5H18M7.757 14.743l-1.59 1.59M6 10.5H3.75m4.007-4.243l-1.59-1.59"/>
       </svg>
       <p class="text-sm text-gray-500 max-w-xs">
-        To view coverage data, please select a specific sample from the sidebar. Currently showing <b>All samples</b>.
+        To view coverage data, please select a specific sample from the sidebar.
       </p>
     </div>
 
@@ -545,8 +478,8 @@ const option = computed(() => {
       <!-- Controls -->
       <div class="flex items-center gap-3 mb-4 flex-wrap">
 
-        <!-- Coverage gene selector (searchable combobox, gene mode only) -->
-        <div v-if="!bedMode && coverageGeneList.length" class="relative">
+        <!-- Coverage gene selector (searchable combobox) -->
+        <div v-if="coverageGeneList.length" class="relative">
           <div class="flex items-center bg-white border border-gray-200 rounded-lg px-3 py-1.5 focus-within:border-teal-400 transition-colors min-w-[130px]">
             <input
               ref="geneInputRef"
@@ -594,30 +527,6 @@ const option = computed(() => {
           <option v-for="c in availableChroms" :key="c" :value="c">chr{{ c }}</option>
         </select>
 
-        <!-- BED gene filter (only in BED mode with data) -->
-        <select
-          v-if="bedMode && bedGeneList.length > 1 && regions.length"
-          v-model="selectedBedGene"
-          class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-100"
-        >
-          <option value="">All regions ({{ bedRegions.length }})</option>
-          <option v-for="g in bedGeneList" :key="g" :value="g">{{ g }}</option>
-        </select>
-
-        <!-- BED file upload -->
-        <input ref="bedInput" type="file" accept=".bed,.txt" class="hidden" @change="onBedFile" />
-        <button
-          @click="openBedPicker"
-          class="text-sm px-3 py-1.5 border border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-teal-400 hover:text-teal-600 transition-colors bg-white"
-        >
-          {{ bedMode ? '↺ Replace BED' : '+ Upload BED' }}
-        </button>
-        <template v-if="bedMode">
-          <span class="text-xs text-teal-600 font-medium">{{ bedFileName }}</span>
-          <span class="text-xs text-gray-400">({{ bedRegions.length }} regions)</span>
-          <button @click="clearBed" class="text-xs text-gray-400 hover:text-red-500 transition-colors">✕ Clear</button>
-        </template>
-
         <span v-if="loading" class="text-xs text-gray-400 animate-pulse">Loading coverage data…</span>
         <span v-if="error" class="text-xs text-red-500">{{ error }}</span>
 
@@ -637,11 +546,6 @@ const option = computed(() => {
           </span>
           <span class="text-xs text-gray-500">
             avg <span class="font-semibold text-gray-700">{{ stats.mean }}×</span>
-          </span>
-          <span class="flex items-center gap-3 text-xs">
-            <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#ef4444]"></span>≤ 20×</span>
-            <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#f59e0b]"></span>20–100×</span>
-            <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#6b7280]"></span>&gt; 100×</span>
           </span>
           <span class="flex items-center gap-3 text-xs">
             <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#e5e7eb]"></span>Other regions</span>
@@ -686,8 +590,7 @@ const option = computed(() => {
         v-else-if="!loading"
         class="h-[280px] flex items-center justify-center text-sm text-gray-400"
       >
-        <span v-if="bedMode && loaded">No coverage data matched the BED regions for this sample</span>
-        <span v-else>No coverage data</span>
+        No coverage data
       </div>
     </div>
 

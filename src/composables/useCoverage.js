@@ -88,44 +88,6 @@ export function useCoverage() {
     return rows
   }
 
-  /**
-   * Given an array of {chrom, start, end, name} BED regions, returns coverage
-   * regions from the current sample that overlap each BED region.
-   * Output: [{chrom, start, end, gene, avgDepth, regionLength, fractionCovered, bedName}]
-   */
-  function getRegionData(bedRegions) {
-    const data = parsedCache[currentSample.value]
-    if (!data) return []
-    const norm = c => String(c).replace(/^chr/i, '')
-
-    // Flatten all coverage regions
-    const allRegions = []
-    for (const regions of Object.values(data)) {
-      for (const reg of regions) {
-        allRegions.push(reg)
-      }
-    }
-
-    const result = []
-    const seen   = new Set()
-
-    for (const bed of bedRegions) {
-      const nc = norm(bed.chrom)
-      for (const reg of allRegions) {
-        if (norm(reg.chrom) !== nc) continue
-        if (reg.end < bed.start || reg.start > bed.end) continue
-        const key = `${reg.chrom}:${reg.start}-${reg.end}`
-        if (seen.has(key)) continue
-        seen.add(key)
-        result.push({ ...reg, bedName: bed.name })
-      }
-    }
-
-    return result.sort((a, b) =>
-      String(a.chrom).localeCompare(String(b.chrom), undefined, { numeric: true }) || a.start - b.start
-    )
-  }
-
   async function load(sampleId) {
     if (!sampleId) return
     // Cache hit — no re-parsing needed
@@ -197,7 +159,7 @@ export function useCoverage() {
   }
 
   return {
-    coverageGeneList, getGeneData, getRegionData, loading, error, loaded, load, currentSample,
+    coverageGeneList, getGeneData, loading, error, loaded, load, currentSample,
     loadCohortAverage, getCohortAverage, cohortAverageReady, cohortAverageLoading, cohortAverageError,
   }
 }

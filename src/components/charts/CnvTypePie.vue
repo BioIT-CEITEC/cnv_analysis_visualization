@@ -1,8 +1,11 @@
 <script setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { VChart } from "../../utils/echarts.js";
 
 const props = defineProps({ data: Array, chromOrder: Array });
+
+const chartRef = ref(null);
+defineExpose({ chartRef });
 
 const option = computed(() => {
   const delCount = props.data.filter((r) => r.consensus_type === "DEL").length;
@@ -86,5 +89,5 @@ const option = computed(() => {
 </script>
 
 <template>
-  <VChart :option="option" autoresize style="height: 300px" />
+  <VChart ref="chartRef" :option="option" autoresize style="height: 300px" />
 </template>

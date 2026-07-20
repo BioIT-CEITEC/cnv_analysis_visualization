@@ -3,6 +3,9 @@ import { computed, ref } from "vue";
 import ceitecLogo from "../assets/ceitec-logo.png";
 import { useFilters, CHROM_ORDER } from "../composables/useFilters.js";
 import { coverageSampleList } from "../composables/useCoverage.js";
+import { exportFormat, exportDPI } from "../composables/useExportSettings.js";
+import { downloadChartImage } from "../utils/exportChart.js";
+import { APP_VERSION } from "../utils/version.js";
 import FilterBar from "./FilterBar.vue";
 import GenomeOverview from "./charts/GenomeOverview.vue";
 import CnvTypeBar from "./charts/CnvTypePie.vue";
@@ -12,6 +15,7 @@ import DataTable from "./charts/DataTable.vue";
 import GenomeCoverage from "./charts/GenomeCoverage.vue";
 import CohortTopGenes from "./charts/CohortTopGenes.vue";
 import ChartInfo from "./ChartInfo.vue";
+import DownloadButton from "./DownloadButton.vue";
 
 const props = defineProps({ data: Array, filename: String });
 
@@ -35,10 +39,8 @@ const stats = computed(() => {
   };
 });
 
-// "All (cohort)" mode: show a cohort-wide gene summary instead of per-sample coverage,
-// and give the table more room since there's more to browse across every sample.
+// "All (cohort)" mode: show a cohort-wide gene summary instead of per-sample coverage.
 const isCohortView = computed(() => selectedSample.value === 'all');
-const tablePageSize = computed(() => isCohortView.value ? 10 : 6);
 
 const sampleList = coverageSampleList;
 const sidebarOpen = ref(true);
@@ -46,6 +48,25 @@ const mobileSidebarOpen = ref(false);
 
 const coverageJumpTo  = ref(null)
 const coverageSection = ref(null)
+
+// Template refs to the child chart/table components, used to trigger their downloads
+const dataTableRef     = ref(null)
+const pieChartRef      = ref(null)
+const genomeCoverageRef = ref(null)
+const topGenesRef       = ref(null)
+
+function downloadTable() {
+  dataTableRef.value?.downloadXlsx()
+}
+function downloadPieChart() {
+  downloadChartImage(pieChartRef.value?.chartRef, 'del_dup_pie_chart')
+}
+function downloadCoverageChart() {
+  downloadChartImage(genomeCoverageRef.value?.chartRef, 'genome_coverage')
+}
+function downloadTopGenesChart() {
+  downloadChartImage(topGenesRef.value?.chartRef, isCohortView.value ? 'cohort_gene_summary' : 'top_affected_genes')
+}
 
 function onTableNavigate(targets) {
   // In cohort ("All") view the table's own data changes (it now spans every sample),
@@ -64,7 +85,7 @@ function onTableNavigate(targets) {
 </script>
 
 <template>
-  <div class="flex h-screen overflow-hidden bg-gray-50">
+  <div class="flex h-full overflow-hidden bg-gray-50">
 
     <!-- ── Mobile backdrop ── -->
     <div
@@ -125,7 +146,7 @@ function onTableNavigate(targets) {
       </div>
 
       <!-- Filters -->
-      <div class="flex-1 px-4 py-4 overflow-y-auto">
+      <div class="px-4 py-4 border-b border-gray-100">
         <FilterBar
           :samples="availableSamples"
           :sample="selectedSample"
@@ -133,6 +154,44 @@ function onTableNavigate(targets) {
           :result-count="filtered.length"
           @reset="reset"
         />
+      </div>
+
+      <!-- Export Settings — applies to every plot's download button -->
+      <div class="flex-1 px-4 py-4 overflow-y-auto">
+        <div class="flex flex-col gap-3">
+          <span class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">Export Settings</span>
+
+          <div class="flex flex-col gap-1">
+            <label class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">Format</label>
+            <select
+              v-model="exportFormat"
+              class="w-full bg-white border border-gray-300 text-gray-700 text-sm rounded-md px-2 py-1.5 outline-none focus:border-teal-500 cursor-pointer"
+            >
+              <option value="png">PNG</option>
+              <option value="jpeg">JPEG</option>
+            </select>
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <label class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">Resolution</label>
+            <select
+              v-model.number="exportDPI"
+              class="w-full bg-white border border-gray-300 text-gray-700 text-sm rounded-md px-2 py-1.5 outline-none focus:border-teal-500 cursor-pointer"
+            >
+              <option :value="72">72 DPI</option>
+              <option :value="96">96 DPI</option>
+              <option :value="150">150 DPI</option>
+              <option :value="300">300 DPI</option>
+            </select>
+          </div>
+
+          <p class="text-[11px] text-gray-400">Applies when downloading any plot.</p>
+        </div>
+      </div>
+
+      <!-- Version -->
+      <div class="px-4 py-3 border-t border-gray-100 text-center">
+        <span class="text-[11px] text-gray-400">{{ APP_VERSION }}</span>
       </div>
       </template>
     </aside>
@@ -161,59 +220,83 @@ function onTableNavigate(targets) {
           <div class="bg-white border border-gray-200 rounded-xl p-5 overflow-x-auto">
             <div class="flex items-center justify-between mb-4">
               <h3 class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">Data Table</h3>
-              <ChartInfo
-                file="all_samples_smoothed.tsv"
-                :columns="['sample','CHROM','START','END','genes','type','n_callers','callers','classifications','target_names']"
-                description="Lists all CNV calls passing the current filters. Each row is one consensus CNV event. The Callers column shows how many tools detected it; Classification shows the clinical significance. Sortable by any column, with a text filter per column. Shows 10 rows per page in cohort ('All') view, 6 otherwise."
-              />
+              <div class="flex items-center gap-1">
+                <ChartInfo
+                  file="all_samples_smoothed.tsv"
+                  :columns="['sample','CHROM','START','END','genes','type','n_callers','callers','classifications','target_names']"
+                  description="Lists all CNV calls passing the current filters. Each row is one consensus CNV event. The Callers column shows how many tools detected it; Classification shows the clinical significance. Sortable by any column, with a filter per column above the header (text for most, a dropdown for Type/Classification). 6 rows per page."
+                />
+                <DownloadButton title="Download as .xlsx" @click="downloadTable" />
+              </div>
             </div>
             <div style="min-width: 560px">
-              <DataTable :data="filtered" :page-size="tablePageSize" :show-sample="isCohortView" @navigate="onTableNavigate" />
+              <DataTable ref="dataTableRef" :data="filtered" :show-sample="isCohortView" :allow-selection="!isCohortView" @navigate="onTableNavigate" />
             </div>
           </div>
           <div class="bg-white border border-gray-200 rounded-xl p-5 overflow-x-auto">
             <div class="flex items-center justify-between mb-4">
               <h3 class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">DEL / DUP Pie Chart</h3>
-              <ChartInfo
-                file="all_samples_smoothed.tsv"
-                :columns="['type','CHROM']"
-                description="Nested pie chart. Inner ring: total DEL vs DUP counts across all filtered targets. Outer ring: per-chromosome breakdown, colored by type (light red = DEL, light blue = DUP). Both rings reflect active filters."
-              />
+              <div class="flex items-center gap-1">
+                <ChartInfo
+                  file="all_samples_smoothed.tsv"
+                  :columns="['type','CHROM']"
+                  description="Nested pie chart. Inner ring: total DEL vs DUP counts across all filtered targets. Outer ring: per-chromosome breakdown, colored by type (light red = DEL, light blue = DUP). Both rings reflect active filters."
+                />
+                <DownloadButton title="Download chart image" @click="downloadPieChart" />
+              </div>
             </div>
             <div style="min-width: 280px">
-              <CnvTypeBar :data="filtered" :chrom-order="CHROM_ORDER" />
+              <CnvTypeBar ref="pieChartRef" :data="filtered" :chrom-order="CHROM_ORDER" />
             </div>
           </div>
         </div>
 
-        <!-- Genome Coverage (per-sample) / Cohort Gene Summary (when "All" is selected) -->
+        <!-- Genome Coverage — always shown; prompts for a specific sample when "All" is selected -->
         <div ref="coverageSection" class="bg-white border border-gray-200 rounded-xl p-5 overflow-x-auto">
           <div class="flex items-center justify-between mb-4">
-            <h3 class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">
-              {{ isCohortView ? 'Cohort Gene Summary' : 'Genome Coverage' }}
-            </h3>
-            <ChartInfo
-              v-if="isCohortView"
-              file="all_samples_smoothed.tsv"
-              :columns="['genes','type']"
-              description="Shown when 'All (cohort)' is selected as the sample. Horizontal stacked bar of the 15 most frequently affected genes across every sample in the loaded dataset, split into DEL (red) and DUP (blue) call counts. Select a specific sample to go back to its Genome Coverage plot."
-            />
-            <ChartInfo
-              v-else
-              :file="['*.region_coverage.tsv', 'all_samples_smoothed.tsv']"
-              :columns="['chrom','start','end','gene','avg_coverage','region_length','bases_covered','fraction_covered','cn_labels','classifications']"
-              description="Average read depth per target region for the selected sample and gene. Each bar is one exon/target region. Depth color: red ≤ 20×, amber 20–100×, grey > 100×. Hovering a region that overlaps the selected table row also shows its per-caller CN labels and classification. Toggle 'Cohort avg' to overlay a transparent red line showing the average depth per region across every loaded sample. You can also upload a BED file to visualize coverage for custom regions instead of a gene."
-            />
+            <h3 class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">Genome Coverage</h3>
+            <div class="flex items-center gap-1">
+              <ChartInfo
+                :file="['*.region_coverage.tsv', 'all_samples_smoothed.tsv']"
+                :columns="['chrom','start','end','gene','avg_coverage','region_length','bases_covered','fraction_covered','cn_labels','classifications']"
+                description="Average read depth per target region for the selected sample and gene. Each bar is one exon/target region. Hovering a region that overlaps the selected table row also shows its per-caller CN labels, classification, and dosage-sensitivity. Toggle 'Cohort avg' to overlay a transparent red line showing the average depth per region across every loaded sample. Select a specific sample from the sidebar to view this plot."
+              />
+              <DownloadButton title="Download chart image" @click="downloadCoverageChart" />
+            </div>
           </div>
-          <CohortTopGenes v-if="isCohortView" :data="filtered" />
           <GenomeCoverage
-            v-else
+            ref="genomeCoverageRef"
             :sample-list="sampleList"
             :active-sample-id="selectedSample"
             :jump-to="coverageJumpTo"
           />
         </div>
 
+        <!-- Top Affected Genes — per-sample when a sample is selected, cohort-wide for "All" -->
+        <div class="bg-white border border-gray-200 rounded-xl p-5 overflow-x-auto">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">
+              {{ isCohortView ? 'Cohort Gene Summary' : 'Top Affected Genes' }}
+            </h3>
+            <div class="flex items-center gap-1">
+              <ChartInfo
+                file="all_samples_smoothed.tsv"
+                :columns="['genes','type']"
+                :description="isCohortView
+                  ? `Horizontal stacked bar of the 15 most frequently affected genes across every sample in the loaded dataset, split into DEL (red) and DUP (blue) call counts.`
+                  : `Horizontal stacked bar of the 15 most frequently affected genes within the selected sample, split into DEL (red) and DUP (blue) call counts.`"
+              />
+              <DownloadButton title="Download chart image" @click="downloadTopGenesChart" />
+            </div>
+          </div>
+          <CohortTopGenes ref="topGenesRef" :data="filtered" />
+        </div>
+
+      </div>
+
+      <!-- Version -->
+      <div class="px-4 py-3 text-center">
+        <span class="text-[11px] text-gray-400">{{ APP_VERSION }}</span>
       </div>
     </main>
 
