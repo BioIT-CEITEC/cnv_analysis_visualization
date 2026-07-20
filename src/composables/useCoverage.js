@@ -93,11 +93,16 @@ export function useCoverage() {
     // Cache hit — no re-parsing needed
     if (parsedCache[sampleId]) {
       currentSample.value = sampleId
+      error.value = '' // clear any stale error left over from a previous, coverage-less sample
       return
     }
     const file = coverageFilesMap.value[sampleId]
     if (!file) {
-      error.value = `No coverage file found for sample: ${sampleId}`
+      // Still record which sample is "current" (with no cache entry) so `loaded` and
+      // `coverageGeneList` correctly go empty, instead of silently keeping the
+      // previous sample's chart on screen mislabeled as this one.
+      currentSample.value = sampleId
+      error.value = 'No coverage file found for this sample.'
       return
     }
     loading.value = true

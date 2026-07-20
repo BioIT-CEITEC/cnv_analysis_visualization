@@ -72,7 +72,7 @@ You will see the intro screen with two options:
 
 ## Input Data Format
 
-Place your files in a single folder and select it using "Open Data Folder".
+Place your files in a single folder and select it using "Open Data Folder". Both `all_samples_smoothed.tsv` and at least one `*.region_coverage.tsv` file are required — a folder without any coverage files will be rejected, since the Genome Coverage plot would otherwise have nothing to show.
 
 **Example folder structure:**
 

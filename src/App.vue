@@ -12,7 +12,7 @@ import sampleCov99Raw    from './assets/sample/sample99.region_coverage.tsv?raw'
 import sampleCov104Raw   from './assets/sample/sample104.region_coverage.tsv?raw'
 import sampleCov105Raw   from './assets/sample/sample105.region_coverage.tsv?raw'
 
-const { rows, filename, loading, error, load } = useData()
+const { rows, loading, error, load } = useData()
 
 const folderInput = ref(null)
 const folderError = ref('')
@@ -55,6 +55,13 @@ async function onFolderSelected(e) {
     if (f.name.endsWith('.region_coverage.tsv')) {
       covMap[f.name.replace('.region_coverage.tsv', '')] = f
     }
+  }
+
+  // Coverage files are required, not optional — without them the Genome Coverage
+  // plot has nothing to show, so refuse to load rather than open a half-empty dashboard.
+  if (!Object.keys(covMap).length) {
+    folderError.value = 'No *.region_coverage.tsv files found in the selected folder. These are required alongside all_samples_smoothed.tsv.'
+    return
   }
 
   setCoverageFiles(covMap)
@@ -206,7 +213,7 @@ onMounted(() => {
         <!-- Required files note -->
         <div class="text-center space-y-1">
           <p class="text-xs text-gray-400">Required: <code class="text-gray-500">all_samples_smoothed.tsv</code></p>
-          <p class="text-xs text-gray-400">Optional: <code class="text-gray-500">*.region_coverage.tsv</code></p>
+          <p class="text-xs text-gray-400">Required: <code class="text-gray-500">*.region_coverage.tsv</code> (one per sample)</p>
         </div>
 
         <!-- Divider -->
@@ -240,7 +247,7 @@ onMounted(() => {
       <button @click="openPicker" class="text-sm underline" style="color:#7ac143">Try another folder</button>
     </div>
 
-    <DashboardView v-else :data="rows" :filename="filename" />
+    <DashboardView v-else :data="rows" />
 
    </div>
 

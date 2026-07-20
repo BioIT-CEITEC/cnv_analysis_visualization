@@ -7,12 +7,28 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { VChart } from '../../utils/echarts.js'
 import { useCoverage, coverageSelectedGene, coverageGeneList } from '../../composables/useCoverage.js'
+import { canonicalGene } from '../../utils/geneAliases.js'
 
 const props = defineProps({
   sampleList:     Array,
   activeSampleId: { type: String, default: '' },
   jumpTo:         { default: null }, // Array of { gene, chrom, start, end, type } | null
 })
+
+// Either side of a gene-name comparison can be a compound "GENE1, GENE2" (or
+// "GENE1,GENE2") field — the consensus table when a region overlaps two genes (e.g.
+// opposite strands), or the coverage file when its own per-region annotation lists
+// more than one name (e.g. an old alias alongside the current one, like VPS13B/COH1).
+// Split both sides into individual names, normalise known HGNC symbol renames (see
+// geneAliases.js), and match if any name appears on both sides.
+function geneParts(field) {
+  return field.split(',').map(g => canonicalGene(g.trim())).filter(Boolean)
+}
+function geneMatches(regionGene, targetGeneField) {
+  if (!regionGene || !targetGeneField) return false
+  const regionParts = geneParts(regionGene)
+  return geneParts(targetGeneField).some(g => regionParts.includes(g))
+}
 
 const {
   getGeneData, loading, error, loaded, load, currentSample,
@@ -100,7 +116,7 @@ watch(availableChroms, (chroms) => {
 watch(coverageSelectedGene, async (gene) => {
   if (!gene) return
   highlightGene.value = gene
-  const geneChrom = allRegions.value.find(r => r.gene === gene)?.chrom
+  const geneChrom = allRegions.value.find(r => geneMatches(r.gene, gene))?.chrom
   if (geneChrom) selectedChrom.value = geneChrom
   await nextTick()
   applyZoom()
@@ -121,7 +137,7 @@ function applyZoom() {
 
   // Gene-name match for highlighted gene
   regs.forEach((r, i) => {
-    if (highlightGene.value && r.gene === highlightGene.value) indexSet.add(i)
+    if (highlightGene.value && geneMatches(r.gene, highlightGene.value)) indexSet.add(i)
   })
 
   // Position overlap for all targets
@@ -190,7 +206,7 @@ function resolveChrom(targetChrom, gene) {
   const byChrom = availableChroms.value.find(c => norm(c) === norm(targetChrom))
   if (byChrom) return byChrom
   // Fall back to finding any region with the given gene name
-  return allRegions.value.find(r => r.gene === gene)?.chrom ?? ''
+  return allRegions.value.find(r => geneMatches(r.gene, gene))?.chrom ?? ''
 }
 
 async function applyJump(targets) {
@@ -276,7 +292,7 @@ const option = computed(() => {
     const variant = targets.find(t => t.start && t.end && r.start <= t.end && r.end >= t.start)
     if (variant) return { value: r.avgDepth, itemStyle: { color: typeColor(variant.type) }, _region: r }
 
-    const isSelected = hGene && r.gene === hGene
+    const isSelected = hGene && geneMatches(r.gene, hGene)
     return { value: r.avgDepth, itemStyle: { color: isSelected ? '#6b7280' : '#e5e7eb' }, _region: r }
   })
 
@@ -312,12 +328,16 @@ const option = computed(() => {
         const label = r.gene || ''
         const chromStr = r.chrom ? `chr${r.chrom}: ` : ''
         const pos = `${r.start.toLocaleString()}–${r.end.toLocaleString()}`
-        let html = `${chromStr}${pos}<br/>${label ? `Gene name: <b>${label}</b><br/>` : ''}Avg depth: <b>${r.avgDepth.toFixed(1)}×</b>`
+        // "Target region" = this exon/target region from the coverage file (what's actually
+        // hovered). "Variant region" = the selected CNV's own start–end, which usually spans
+        // several target regions, so it's shown separately rather than conflated with the above.
+        let html = `Target region: <b>${chromStr}${pos}</b><br/>${label ? `Gene name: <b>${label}</b><br/>` : ''}Avg depth: <b>${r.avgDepth.toFixed(1)}×</b>`
         if (showCohort) {
           const cohortAvg = getCohortAverage(r.chrom, r.start, r.end)
           if (cohortAvg !== null) html += `<br/>Cohort avg: <b>${cohortAvg.toFixed(1)}×</b>`
         }
         const t = findTargetForRegion(r)
+        if (t?.start && t?.end) html += `<br/>Variant region: <b>${chromStr}${t.start.toLocaleString()}–${t.end.toLocaleString()}</b>`
         if (t?.classification) html += `<br/>Classification: <b>${t.classification}</b>`
         if (t?.cnLabels)       html += `<br/>CN labels: <b>${t.cnLabels}</b>`
         if (t) html += `<br/>Dosage sensitive gene: <b>${t.dosageSensitive ? 'Yes' : 'No'}</b>`
@@ -474,6 +494,17 @@ const option = computed(() => {
       </p>
     </div>
 
+    <!-- Alert: sample selected, but no coverage file is available for it -->
+    <div
+      v-else-if="!loading && error && !loaded"
+      class="h-[280px] flex flex-col items-center justify-center gap-3 text-center"
+    >
+      <svg class="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+        <path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+      </svg>
+      <p class="text-sm text-gray-500 max-w-xs">{{ error }}</p>
+    </div>
+
     <div v-else style="min-width: 640px">
       <!-- Controls -->
       <div class="flex items-center gap-3 mb-4 flex-wrap">
@@ -528,7 +559,6 @@ const option = computed(() => {
         </select>
 
         <span v-if="loading" class="text-xs text-gray-400 animate-pulse">Loading coverage data…</span>
-        <span v-if="error" class="text-xs text-red-500">{{ error }}</span>
 
         <!-- Cohort-average overlay toggle -->
         <label class="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none">

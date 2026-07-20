@@ -9,16 +9,14 @@ function cleanGeneList(raw) {
 }
 
 export function useData() {
-  const rows     = ref([])
-  const filename = ref('')
-  const loading  = ref(false)
-  const error    = ref('')
+  const rows    = ref([])
+  const loading = ref(false)
+  const error   = ref('')
 
   async function load(file) {
     if (!file) return
-    loading.value  = true
-    error.value    = ''
-    filename.value = file.name
+    loading.value = true
+    error.value   = ''
     try {
       const text = await file.text()
       Papa.parse(text, {
@@ -31,7 +29,11 @@ export function useData() {
             const END   = parseInt(r.END)
             return {
               ...r,
-              gene:           cleanGeneList(r.genes || r.GFT_genes || ''),
+              // BED_gene_name comes straight from the coverage/target-panel annotation, so it
+              // always matches the coverage file's own gene labels exactly — use it whenever
+              // present instead of the consensus caller's own (possibly differently-named) gene
+              // annotation. Falls back to the old columns for files without BED_gene_name yet.
+              gene:           cleanGeneList(r.BED_gene_name || r.genes || r.GFT_genes || ''),
               consensus_type: r.type            || r.consensus_type || '',
               Classification: r.classifications || r.Classification || '',
               dosage_sensitive_genes: r.dosage_sensitive_genes || r['Known or predicted dosage-sensitive genes'] || '',
@@ -57,5 +59,5 @@ export function useData() {
     }
   }
 
-  return { rows, filename, loading, error, load }
+  return { rows, loading, error, load }
 }

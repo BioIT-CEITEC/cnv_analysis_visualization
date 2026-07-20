@@ -5,7 +5,6 @@ import { useFilters, CHROM_ORDER } from "../composables/useFilters.js";
 import { coverageSampleList } from "../composables/useCoverage.js";
 import { exportFormat, exportDPI } from "../composables/useExportSettings.js";
 import { downloadChartImage } from "../utils/exportChart.js";
-import { APP_VERSION } from "../utils/version.js";
 import FilterBar from "./FilterBar.vue";
 import GenomeOverview from "./charts/GenomeOverview.vue";
 import CnvTypeBar from "./charts/CnvTypePie.vue";
@@ -17,7 +16,7 @@ import CohortTopGenes from "./charts/CohortTopGenes.vue";
 import ChartInfo from "./ChartInfo.vue";
 import DownloadButton from "./DownloadButton.vue";
 
-const props = defineProps({ data: Array, filename: String });
+const props = defineProps({ data: Array });
 
 const dataRef = computed(() => props.data);
 
@@ -122,9 +121,6 @@ function onTableNavigate(targets) {
 
       <!-- Content — hidden when collapsed (desktop only) -->
       <template v-if="sidebarOpen || mobileSidebarOpen">
-      <div class="px-4 py-3 border-b border-gray-100">
-        <p v-if="filename" class="text-[11px] truncate" :title="filename" style="color:#101828;opacity:0.5">{{ filename }}</p>
-      </div>
 
       <!-- Stat cards -->
       <div class="px-4 py-4 border-b border-gray-100">
@@ -188,11 +184,6 @@ function onTableNavigate(targets) {
           <p class="text-[11px] text-gray-400">Applies when downloading any plot.</p>
         </div>
       </div>
-
-      <!-- Version -->
-      <div class="px-4 py-3 border-t border-gray-100 text-center">
-        <span class="text-[11px] text-gray-400">{{ APP_VERSION }}</span>
-      </div>
       </template>
     </aside>
 
@@ -219,11 +210,13 @@ function onTableNavigate(targets) {
         <div class="grid gap-4 grid-cols-1 md:grid-cols-[2fr_1fr]">
           <div class="bg-white border border-gray-200 rounded-xl p-5 overflow-x-auto">
             <div class="flex items-center justify-between mb-4">
-              <h3 class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">Data Table</h3>
+              <h3 class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">
+                {{ isCohortView ? 'Full Cohort Summary' : `${selectedSample} Variants Summary` }}
+              </h3>
               <div class="flex items-center gap-1">
                 <ChartInfo
                   file="all_samples_smoothed.tsv"
-                  :columns="['sample','CHROM','START','END','genes','type','n_callers','callers','classifications','target_names']"
+                  :columns="['sample','CHROM','START','END','BED_gene_name','type','n_callers','callers','classifications','target_names']"
                   description="Lists all CNV calls passing the current filters. Each row is one consensus CNV event. The Callers column shows how many tools detected it; Classification shows the clinical significance. Sortable by any column, with a filter per column above the header (text for most, a dropdown for Type/Classification). 6 rows per page."
                 />
                 <DownloadButton title="Download as .xlsx" @click="downloadTable" />
@@ -235,7 +228,7 @@ function onTableNavigate(targets) {
           </div>
           <div class="bg-white border border-gray-200 rounded-xl p-5 overflow-x-auto">
             <div class="flex items-center justify-between mb-4">
-              <h3 class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">DEL / DUP Pie Chart</h3>
+              <h3 class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">Variant Type Distribution</h3>
               <div class="flex items-center gap-1">
                 <ChartInfo
                   file="all_samples_smoothed.tsv"
@@ -276,12 +269,12 @@ function onTableNavigate(targets) {
         <div class="bg-white border border-gray-200 rounded-xl p-5 overflow-x-auto">
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">
-              {{ isCohortView ? 'Cohort Gene Summary' : 'Top Affected Genes' }}
+              {{ isCohortView ? 'Top Affected Genes - Full Cohort' : `Top Affected Genes ${selectedSample}` }}
             </h3>
             <div class="flex items-center gap-1">
               <ChartInfo
                 file="all_samples_smoothed.tsv"
-                :columns="['genes','type']"
+                :columns="['BED_gene_name','type']"
                 :description="isCohortView
                   ? `Horizontal stacked bar of the 15 most frequently affected genes across every sample in the loaded dataset, split into DEL (red) and DUP (blue) call counts.`
                   : `Horizontal stacked bar of the 15 most frequently affected genes within the selected sample, split into DEL (red) and DUP (blue) call counts.`"
@@ -292,11 +285,6 @@ function onTableNavigate(targets) {
           <CohortTopGenes ref="topGenesRef" :data="filtered" />
         </div>
 
-      </div>
-
-      <!-- Version -->
-      <div class="px-4 py-3 text-center">
-        <span class="text-[11px] text-gray-400">{{ APP_VERSION }}</span>
       </div>
     </main>
 
