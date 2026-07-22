@@ -27,6 +27,10 @@ const selectedRows = ref([]);
 const warning = ref('');
 let warningTimer = null;
 
+// Off by default — toggled via the "Filter" button in the panel header
+const showFilters = ref(false);
+function toggleFilters() { showFilters.value = !showFilters.value; }
+
 function showWarning(msg) {
   warning.value = msg;
   clearTimeout(warningTimer);
@@ -170,7 +174,7 @@ async function downloadXlsx() {
   await writeExcelFile(sorted.value, { columns }).toFile('cnv_calls.xlsx');
 }
 
-defineExpose({ downloadXlsx });
+defineExpose({ downloadXlsx, toggleFilters });
 </script>
 
 <template>
@@ -180,7 +184,7 @@ defineExpose({ downloadXlsx });
     </p>
     <table class="w-full text-xs border-collapse">
       <thead>
-        <tr class="border-b border-gray-200 bg-gray-50">
+        <tr v-if="showFilters" class="border-b border-gray-200 bg-gray-50">
           <th v-if="allowSelection" class="px-3 py-1.5"></th>
           <th v-for="col in cols" :key="col.key + '-filter'" class="px-2 py-1.5">
             <select

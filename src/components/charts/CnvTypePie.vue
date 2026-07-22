@@ -35,13 +35,20 @@ const option = computed(() => {
       textStyle: { color: "#1f2937", fontSize: 12 },
       formatter: "{b}: {c} ({d}%)",
     },
-    legend: { show: false },
+    legend: {
+      show: true,
+      bottom: 0,
+      data: ["DEL", "DUP"],
+      itemWidth: 10,
+      itemHeight: 10,
+      textStyle: { color: "#6b7280", fontSize: 11 },
+    },
     series: [
       {
         name: "Type",
         type: "pie",
         radius: ["30%", "50%"],
-        center: ["50%", "50%"],
+        center: ["50%", "44%"],
         startAngle: 90,
         data: [
           { value: delCount, name: "DEL", itemStyle: { color: "#ef4444", borderWidth: 1.5, borderColor: "#ffffff" } },
@@ -63,7 +70,7 @@ const option = computed(() => {
         name: "Chromosome",
         type: "pie",
         radius: ["55%", "75%"],
-        center: ["50%", "50%"],
+        center: ["50%", "44%"],
         startAngle: 90,
         data: outerData,
         label: {
@@ -89,5 +96,5 @@ const option = computed(() => {
 </script>
 
 <template>
-  <VChart ref="chartRef" :option="option" autoresize style="height: 300px" />
+  <VChart ref="chartRef" :option="option" autoresize style="height: 320px" />
 </template>

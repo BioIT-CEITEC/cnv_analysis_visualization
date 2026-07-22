@@ -558,35 +558,8 @@ const option = computed(() => {
           <option v-for="c in availableChroms" :key="c" :value="c">chr{{ c }}</option>
         </select>
 
-        <span v-if="loading" class="text-xs text-gray-400 animate-pulse">Loading coverage data…</span>
-
-        <!-- Cohort-average overlay toggle -->
-        <label class="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none">
-          <input type="checkbox" v-model="showCohortAvg" class="rounded border-gray-300 text-red-400 focus:ring-red-300 focus:ring-offset-0" />
-          <span class="inline-block w-3 h-3 rounded-sm" style="background: rgba(239,68,68,0.55)"></span>
-          Cohort avg
-        </label>
-        <span v-if="showCohortAvg && cohortAverageLoading" class="text-xs text-gray-400 animate-pulse">Computing cohort average…</span>
-        <span v-if="cohortAverageError" class="text-xs text-red-500">{{ cohortAverageError }}</span>
-
-        <!-- Stats chips -->
-        <template v-if="stats">
-          <span class="text-xs text-gray-500">
-            <span class="font-semibold text-gray-700">{{ stats.count }}</span> regions
-          </span>
-          <span class="text-xs text-gray-500">
-            avg <span class="font-semibold text-gray-700">{{ stats.mean }}×</span>
-          </span>
-          <span class="flex items-center gap-3 text-xs">
-            <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#e5e7eb]"></span>Other regions</span>
-            <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#6b7280]"></span>Selected gene</span>
-            <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#ef4444]"></span>DEL</span>
-            <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#3b82f6]"></span>DUP</span>
-          </span>
-        </template>
-
-        <!-- Zoom controls -->
-        <div v-if="regions.length" class="flex items-center gap-1 ml-auto">
+        <!-- Zoom controls — right after the chromosome selector -->
+        <div v-if="regions.length" class="flex items-center gap-1">
           <button
             @click="zoomOut"
             title="Zoom out"
@@ -602,6 +575,36 @@ const option = computed(() => {
             title="Reset zoom"
             class="text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:border-teal-400 hover:text-teal-600 bg-white transition-colors"
           >Reset</button>
+        </div>
+
+        <!-- Cohort-average overlay toggle -->
+        <label class="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none">
+          <input type="checkbox" v-model="showCohortAvg" class="rounded border-gray-300 text-red-400 focus:ring-red-300 focus:ring-offset-0" />
+          <span class="inline-block w-3 h-3 rounded-sm" style="background: rgba(239,68,68,0.55)"></span>
+          Display cohort average
+        </label>
+
+        <!-- Everything else — pushed to the right, where the zoom controls used to be -->
+        <div class="flex items-center gap-3 flex-wrap ml-auto">
+          <span v-if="loading" class="text-xs text-gray-400 animate-pulse">Loading coverage data…</span>
+          <span v-if="showCohortAvg && cohortAverageLoading" class="text-xs text-gray-400 animate-pulse">Computing cohort average…</span>
+          <span v-if="cohortAverageError" class="text-xs text-red-500">{{ cohortAverageError }}</span>
+
+          <!-- Stats chips -->
+          <template v-if="stats">
+            <span class="text-xs text-gray-500">
+              <span class="font-semibold text-gray-700">{{ stats.count }}</span> regions
+            </span>
+            <span class="text-xs text-gray-500">
+              avg <span class="font-semibold text-gray-700">{{ stats.mean }}×</span>
+            </span>
+            <span class="flex items-center gap-3 text-xs">
+              <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#e5e7eb]"></span>Other regions</span>
+              <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#6b7280]"></span>Selected gene</span>
+              <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#ef4444]"></span>DEL</span>
+              <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#3b82f6]"></span>DUP</span>
+            </span>
+          </template>
         </div>
       </div>
 

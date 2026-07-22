@@ -214,10 +214,20 @@ function onTableNavigate(targets) {
                 {{ isCohortView ? 'Full Cohort Summary' : `${selectedSample} Variants Summary` }}
               </h3>
               <div class="flex items-center gap-1">
+                <button
+                  @click="dataTableRef?.toggleFilters()"
+                  title="Toggle column filters"
+                  class="flex items-center gap-1 px-2 py-1 rounded-md text-gray-400 hover:text-[#21a8c2] hover:bg-[#21a8c20a] transition-colors"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
+                    <path d="M3 4.5h18a.75.75 0 01.6 1.2l-6.6 8.55v6l-4 2v-8l-6.6-8.55A.75.75 0 013 4.5z"/>
+                  </svg>
+                  <span class="text-xs font-medium">Filter</span>
+                </button>
                 <ChartInfo
                   file="all_samples_smoothed.tsv"
                   :columns="['sample','CHROM','START','END','BED_gene_name','type','n_callers','callers','classifications','target_names']"
-                  description="Lists all CNV calls passing the current filters. Each row is one consensus CNV event. The Callers column shows how many tools detected it; Classification shows the clinical significance. Sortable by any column, with a filter per column above the header (text for most, a dropdown for Type/Classification). 6 rows per page."
+                  description="Lists all CNV calls passing the current filters. Each row is one consensus CNV event. The Callers column shows how many tools detected it; Classification shows the clinical significance. Sortable by any column. Click 'Filter' to show a per-column filter row (text for most, a dropdown for Type/Classification), hidden by default. 6 rows per page."
                 />
                 <DownloadButton title="Download as .xlsx" @click="downloadTable" />
               </div>
