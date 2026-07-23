@@ -25,9 +25,5 @@ export function useFilters(data) {
     data.value.filter(row => selectedSample.value === 'all' || row.sample === selectedSample.value)
   )
 
-  function reset() {
-    selectedSample.value = 'all'
-  }
-
-  return { selectedSample, availableSamples, filtered, reset }
+  return { selectedSample, availableSamples, filtered }
 }

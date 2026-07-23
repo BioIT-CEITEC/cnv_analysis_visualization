@@ -15,16 +15,17 @@ defineExpose({ chartRef })
 const TOP_N = 15
 
 const topGenes = computed(() => {
-  const counts = {} // gene -> { del, dup }
+  const counts = {} // gene -> { del, dup, samples: Set }
   for (const row of props.data) {
     const gene = row.gene
     if (!gene) continue
-    const bucket = counts[gene] || (counts[gene] = { del: 0, dup: 0 })
+    const bucket = counts[gene] || (counts[gene] = { del: 0, dup: 0, samples: new Set() })
     if (row.consensus_type === 'DEL') bucket.del++
     else if (row.consensus_type === 'DUP') bucket.dup++
+    if (row.sample) bucket.samples.add(row.sample)
   }
   return Object.entries(counts)
-    .map(([gene, c]) => ({ gene, ...c, total: c.del + c.dup }))
+    .map(([gene, c]) => ({ gene, del: c.del, dup: c.dup, total: c.del + c.dup, samples: [...c.samples].sort() }))
     .sort((a, b) => b.total - a.total)
     .slice(0, TOP_N)
     .reverse() // highest count renders at the top of the horizontal chart
@@ -40,6 +41,14 @@ const option = computed(() => {
       backgroundColor: '#ffffff',
       borderColor: '#e5e7eb',
       textStyle: { color: '#1f2937', fontSize: 12 },
+      formatter(params) {
+        const g = genes.find(gg => gg.gene === params[0].axisValue)
+        if (!g) return ''
+        let html = `<b>${g.gene}</b>`
+        params.forEach(p => { html += `<br/>${p.marker}${p.seriesName}: <b>${p.value}</b>` })
+        html += `<br/>Affected samples: <b>${g.samples.length ? g.samples.join(', ') : '—'}</b>`
+        return html
+      },
     },
     legend: {
       data: ['DEL', 'DUP'],

@@ -24,7 +24,6 @@ const {
   selectedSample,
   availableSamples,
   filtered,
-  reset,
 } = useFilters(dataRef);
 
 const stats = computed(() => {
@@ -148,7 +147,6 @@ function onTableNavigate(targets) {
           :sample="selectedSample"
           @update:sample="selectedSample = $event"
           :result-count="filtered.length"
-          @reset="reset"
         />
       </div>
 

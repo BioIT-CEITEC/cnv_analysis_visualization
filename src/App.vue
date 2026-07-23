@@ -172,7 +172,7 @@ onMounted(() => {
         style="padding-top: 3.5rem; padding-bottom: 3rem; font-family: 'Poppins', ui-sans-serif, system-ui, sans-serif; background: rgba(255,255,255,0.6); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); border: 1px solid rgba(255,255,255,0.85); box-shadow: 0 8px 40px rgba(33,168,194,0.08), 0 2px 12px rgba(0,0,0,0.06);"
       >
         <!-- Logo + title -->
-        <div class="flex flex-col items-center gap-2">
+        <div class="flex flex-col items-center gap-2 text-center">
           <img :src="ceitecLogo" alt="CEITEC BioIT" class="h-12 object-contain" />
           <span class="text-xs tracking-widest uppercase text-gray-400" style="font-weight:300; letter-spacing:0.2em;">CNV Visualization Module</span>
         </div>
@@ -220,7 +220,7 @@ onMounted(() => {
         <div class="w-full h-px" style="background: linear-gradient(to right, transparent, #e5e7eb, transparent);" />
 
         <!-- Default sample button -->
-        <div class="flex flex-col items-center gap-2">
+        <div class="flex flex-col items-center gap-2 text-center">
           <button
             @click="loadDefaultSample"
             class="px-5 py-2 rounded-lg text-sm font-medium transition-colors"
@@ -233,8 +233,8 @@ onMounted(() => {
           <p class="text-[11px] text-gray-400">Try with built-in example data (sample57, sample99, sample104, sample105)</p>
         </div>
 
-        <p v-if="folderError" class="text-red-400 text-sm">{{ folderError }}</p>
-        <p v-if="error"       class="text-red-400 text-sm">{{ error }}</p>
+        <p v-if="folderError" class="text-red-400 text-sm text-center">{{ folderError }}</p>
+        <p v-if="error"       class="text-red-400 text-sm text-center">{{ error }}</p>
       </div>
 
       <input ref="folderInput" type="file" webkitdirectory multiple class="hidden" @change="onFolderSelected" />

@@ -57,7 +57,7 @@ const option = computed(() => {
         label: {
           show: true,
           position: "inner",
-          formatter: "{b}\n{c}",
+          formatter: "{c}",
           color: "#fff",
           fontSize: 11,
           fontWeight: "bold",
