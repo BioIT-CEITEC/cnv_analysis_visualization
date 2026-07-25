@@ -6,6 +6,7 @@
 import { ref, computed, watch } from "vue";
 import { CHROM_ORDER } from "../../composables/useFilters.js";
 import { formatCallers } from "../../utils/callers.js";
+import { ensureAllCoverageParsed, getTranscriptsForRegion, parsedVersion } from "../../composables/useCoverage.js";
 import writeExcelFile from "write-excel-file/browser";
 
 const props = defineProps({
@@ -60,6 +61,26 @@ function affectedExons(targetNames) {
   return [...new Set(exons)].join(', ');
 }
 
+// Transcript IDs aren't in the consensus TSV — looked up from that row's own sample's
+// *.region_coverage.tsv (BED-derived), matched by chrom/position overlap. Coverage files for
+// every sample are parsed eagerly (below) so this works across the whole cohort, not just
+// whichever single sample happens to be open in the coverage chart.
+watch(() => props.data, () => { ensureAllCoverageParsed(); }, { immediate: true });
+
+function transcriptIdsFor(row) {
+  parsedVersion.value; // reactive dependency — re-render once background parsing completes
+  return getTranscriptsForRegion(row.sample, row.CHROM, row.START, row.END);
+}
+function transcriptIdsText(row) {
+  const ids = transcriptIdsFor(row);
+  return ids.length ? ids.join(', ') : '';
+}
+
+// Ensembl's standard transcript lookup page — same ENST ID format we already parse
+function ensemblTranscriptUrl(id) {
+  return `https://www.ensembl.org/Homo_sapiens/Transcript/Summary?t=${encodeURIComponent(id)}`;
+}
+
 // filter: 'text' (free-text substring match) | 'select' (exact-match dropdown) | 'none' (no filter UI)
 const ALL_COLS = [
   { key: "sample",         label: "Sample",         filter: "text" },
@@ -71,6 +92,7 @@ const ALL_COLS = [
   { key: "n_callers",      label: "Callers",         filter: "none" },
   { key: "Classification", label: "Classification",  filter: "select", noSort: true },
   { key: "target_names",   label: "Affected exons",  filter: "text", noSort: true },
+  { key: "transcript_ids", label: "Transcript ID",   filter: "text", noSort: true },
 ];
 
 const cols = computed(() => props.showSample ? ALL_COLS : ALL_COLS.filter(c => c.key !== "sample"));
@@ -85,9 +107,10 @@ const classificationOptions = computed(() => [...new Set(props.data.map(r => r.C
 // What each free-text column filter actually matches against — mirrors what's shown in the cell
 function cellSearchText(row, key) {
   switch (key) {
-    case "CHROM":        return `chr${row.CHROM}`;
-    case "target_names":  return `${affectedExons(row.target_names)} ${row.target_names ?? ''}`;
-    default:              return String(row[key] ?? '');
+    case "CHROM":          return `chr${row.CHROM}`;
+    case "target_names":   return `${affectedExons(row.target_names)} ${row.target_names ?? ''}`;
+    case "transcript_ids": return transcriptIdsText(row);
+    default:               return String(row[key] ?? '');
   }
 }
 
@@ -165,9 +188,10 @@ async function downloadXlsx() {
         case "CHROM":         return { value: `chr${row.CHROM}`, type: String };
         case "START":         return { value: row.START, type: Number };
         case "END":           return { value: row.END, type: Number };
-        case "n_callers":     return { value: row.n_callers, type: Number };
-        case "target_names":  return { value: affectedExons(row.target_names), type: String };
-        default:              return { value: String(row[col.key] ?? ''), type: String };
+        case "n_callers":      return { value: row.n_callers, type: Number };
+        case "target_names":   return { value: affectedExons(row.target_names), type: String };
+        case "transcript_ids": return { value: transcriptIdsText(row), type: String };
+        default:               return { value: String(row[col.key] ?? ''), type: String };
       }
     },
   }));
@@ -272,6 +296,21 @@ defineExpose({ downloadXlsx, toggleFilters });
           </td>
           <td class="px-3 py-2 text-gray-500 text-[11px] max-w-[220px] truncate" :title="row.target_names">
             {{ affectedExons(row.target_names) || '—' }}
+          </td>
+          <td class="px-3 py-2 text-[11px] font-mono max-w-[160px]">
+            <span v-if="!transcriptIdsFor(row).length" class="text-gray-300">—</span>
+            <span v-else class="flex flex-wrap gap-x-1 gap-y-0.5">
+              <a
+                v-for="id in transcriptIdsFor(row)"
+                :key="id"
+                :href="ensemblTranscriptUrl(id)"
+                target="_blank"
+                rel="noopener noreferrer"
+                :title="`View ${id} on Ensembl`"
+                class="text-teal-600 hover:underline"
+                @click.stop
+              >{{ id }}</a>
+            </span>
           </td>
         </tr>
       </tbody>

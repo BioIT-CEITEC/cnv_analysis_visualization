@@ -129,9 +129,42 @@ const regions = computed(() =>
     .sort((a, b) => a.start - b.start)
 )
 
+// Regions aren't contiguous — there are real (often huge) gaps between them (introns,
+// intergenic space). Rendering them as an evenly-spaced category axis falsely implies
+// they're back-to-back. Instead, insert "spacer" slots between regions sized by
+// log1p(gap) — big enough to read as a gap, compressed enough that one huge intergenic
+// stretch doesn't squeeze every other region into invisibility. Capped so a
+// chromosome-arm-scale gap doesn't blow up the axis.
+const MAX_SPACERS = 20
+
+// Gene + variant header rows, drawn above the plot area (in dedicated grid margin, not
+// inside the data area) so they never depend on — or collide with — the y-axis headroom.
+const GENE_ROW_H = 14
+const VARIANT_ROW_H = 12
+const HEADER_GAP = 3
+const HEADER_MARGIN = HEADER_GAP + GENE_ROW_H + HEADER_GAP + VARIANT_ROW_H + HEADER_GAP
+const layout = computed(() => {
+  const regs = regions.value
+  const slots = []
+  const regIndexToSlot = []
+  regs.forEach((r, i) => {
+    if (i > 0) {
+      const gap = r.start - regs[i - 1].end
+      if (gap > 0) {
+        const n = Math.min(MAX_SPACERS, Math.round(Math.log1p(gap)))
+        for (let k = 0; k < n; k++) slots.push({ real: false })
+      }
+    }
+    regIndexToSlot.push(slots.length)
+    slots.push({ real: true, region: r })
+  })
+  return { slots, regIndexToSlot }
+})
+
 function applyZoom() {
   if (!chartRef.value) return
   const regs = regions.value
+  const { regIndexToSlot, slots } = layout.value
   const targets = props.jumpTo || []
   const indexSet = new Set()
 
@@ -151,11 +184,13 @@ function applyZoom() {
 
   if (!indexSet.size) return
   const sorted = [...indexSet].sort((a, b) => a - b)
-  const pad   = 3
-  const total = regs.length
-  const s = Math.max(0, sorted[0] - pad)
-  const e = Math.min(total - 1, sorted[sorted.length - 1] + pad)
-  setZoom((s / total) * 100, (e / total) * 100)
+  const pad     = 3
+  const regTotal = regs.length
+  const startRegIdx = Math.max(0, sorted[0] - pad)
+  const endRegIdx   = Math.min(regTotal - 1, sorted[sorted.length - 1] + pad)
+  const s = regIndexToSlot[startRegIdx]
+  const e = regIndexToSlot[endRegIdx]
+  setZoom((s / slots.length) * 100, (e / slots.length) * 100)
 }
 
 // ── Zoom controls ────────────────────────────────────────────────────────────
@@ -167,6 +202,14 @@ function onDataZoom(params) {
   if (info && typeof info.start === 'number') {
     zoomRange.value = { start: info.start, end: info.end }
   }
+}
+
+// Clicking a region (bar or line point) selects its gene and zooms into that gene's
+// full set of target regions — the same behavior as picking it from the gene combobox.
+function onChartClick(params) {
+  const region = params?.data?._region
+  if (!region) return // spacer slot, or a click on the whisker/annotation track — no region to zoom to
+  selectCoverageGene(region.gene)
 }
 
 function setZoom(start, end) {
@@ -234,13 +277,26 @@ function depthColor(d) {
   return '#6b7280'
 }
 
-const stats = computed(() => {
-  if (!regions.value.length) return null
-  let weightedSum = 0, totalLen = 0, min = Infinity, max = -Infinity, ge20 = 0, ge100 = 0
-  for (const r of regions.value) {
+const hasStdev = computed(() => regions.value.some(r => r.stdevDepth != null))
+
+// Length-weighted mean depth across the regions currently shown — the reference point
+// the "Normalize to average" toggle re-centers the plot on.
+const meanDepth = computed(() => {
+  const regs = regions.value
+  if (!regs.length) return 0
+  let weightedSum = 0, totalLen = 0
+  for (const r of regs) {
     const len = r.regionLength || (r.end - r.start)
     weightedSum += r.avgDepth * len
     totalLen    += len
+  }
+  return totalLen > 0 ? weightedSum / totalLen : 0
+})
+
+const stats = computed(() => {
+  if (!regions.value.length) return null
+  let min = Infinity, max = -Infinity, ge20 = 0, ge100 = 0
+  for (const r of regions.value) {
     if (r.avgDepth < min) min = r.avgDepth
     if (r.avgDepth > max) max = r.avgDepth
     if (r.avgDepth >= 20)  ge20++
@@ -248,7 +304,7 @@ const stats = computed(() => {
   }
   const n = regions.value.length
   return {
-    mean:   totalLen > 0 ? (weightedSum / totalLen).toFixed(0) : 0,
+    mean:   meanDepth.value.toFixed(0),
     min:    min.toFixed(0),
     max:    max.toFixed(0),
     pct20:  (ge20  / n * 100).toFixed(1),
@@ -257,55 +313,120 @@ const stats = computed(() => {
   }
 })
 
+// "Normalize to average" — re-centers the plot so each region's expected depth (its own
+// cohort average, when available) is 0, showing over/under deviations instead of absolute
+// depth. This already IS "the average of the cohort", so the separate cohort-average
+// overlay toggle is hidden while this is on — showing both would be redundant.
+const normalizeToAvg = ref(false)
+watch(normalizeToAvg, (on) => { if (on) loadCohortAverage() })
+
 const option = computed(() => {
   const regs = regions.value
   if (!regs.length) return {}
 
-  const xLabels = regs.map(r =>
-    r.start >= 1e6
-      ? `${(r.start / 1e6).toFixed(3)}M`
-      : r.start.toLocaleString()
-  )
+  const { slots, regIndexToSlot } = layout.value
+
+  // Full (non-abbreviated) start position — spacer slots get a blank label
+  const xLabels = slots.map(s => s.real ? s.region.start.toLocaleString() : '')
 
   const hGene = highlightGene.value
   const targets = props.jumpTo || []
+
+  // When normalized, every plotted value is shifted so each region's own expected depth sits
+  // at 0. That expected depth is the region's cohort average (a fairer reference than one
+  // flat number, since different regions have very different natural depths) — falling back
+  // to this sample's own chromosome-wide mean for regions with no cohort data (yet).
+  // Cohort-average is already what "normalize" centers on, so the separate cohort-average
+  // overlay (below) is suppressed while normalized — showing it too would be redundant.
+  const cohortReady = cohortAverageReady.value
+  function baselineFor(r) {
+    if (!normalizeToAvg.value) return { value: 0, source: 'none' }
+    const cohortAvg = cohortReady ? getCohortAverage(r.chrom, r.start, r.end) : null
+    return (cohortAvg !== null && cohortAvg !== undefined)
+      ? { value: cohortAvg, source: 'cohort' }
+      : { value: meanDepth.value, source: 'sample' }
+  }
 
   function typeColor(type) {
     return type === 'DEL' ? '#ef4444' : type === 'DUP' ? '#3b82f6' : '#6b7280'
   }
 
-  const lineData = regs.map(r => ({
-    value: r.avgDepth,
-    itemStyle: { color: depthColor(r.avgDepth) },
-    _region: r,
-  }))
+  const lineData = slots.map(s => s.real
+    ? { value: s.region.avgDepth - baselineFor(s.region).value, itemStyle: { color: depthColor(s.region.avgDepth) }, _region: s.region }
+    : { value: null })
 
-  // Cohort-average overlay: same region, averaged across every loaded sample
-  const showCohort = showCohortAvg.value && cohortAverageReady.value
+  // Cohort-average overlay: same region, averaged across every loaded sample — hidden while
+  // normalized, since the 0/avg line already represents the cohort average at that point.
+  const showCohort = !normalizeToAvg.value && showCohortAvg.value && cohortReady
   const cohortLineData = showCohort
-    ? regs.map(r => ({ value: getCohortAverage(r.chrom, r.start, r.end), _region: r }))
+    ? slots.map(s => {
+        if (!s.real) return { value: null }
+        const v = getCohortAverage(s.region.chrom, s.region.start, s.region.end)
+        return { value: v, _region: s.region }
+      })
     : []
 
+  // Whiskers: avg depth ± 1 stdev, per region (only for regions that have a stdev value).
+  // Clamp the raw low bound at 0 before applying the normalization shift.
+  const errorBarData = regs.reduce((acc, r, i) => {
+    if (r.stdevDepth != null) {
+      const b  = baselineFor(r).value
+      const lo = Math.max(0, r.avgDepth - r.stdevDepth)
+      const hi = r.avgDepth + r.stdevDepth
+      acc.push([regIndexToSlot[i], lo - b, hi - b])
+    }
+    return acc
+  }, [])
+
   // Bars for every region: light gray by default, darker gray for the selected
-  // gene, red/blue when the region overlaps a DEL/DUP variant.
-  const barData = regs.map(r => {
+  // gene, red/blue when the region overlaps a DEL/DUP variant. Spacer slots get no bar.
+  // Rounded corner tracks the tip of the bar (away from the 0/avg line) — when normalized,
+  // a below-average bar renders downward, so its "far" end is the bottom, not the top.
+  const barData = slots.map(s => {
+    if (!s.real) return { value: null }
+    const r = s.region
+    const value  = r.avgDepth - baselineFor(r).value
+    const radius = value < 0 ? [0, 0, 3, 3] : [3, 3, 0, 0]
     const variant = targets.find(t => t.start && t.end && r.start <= t.end && r.end >= t.start)
-    if (variant) return { value: r.avgDepth, itemStyle: { color: typeColor(variant.type) }, _region: r }
+    if (variant) return { value, itemStyle: { color: typeColor(variant.type), borderRadius: radius }, _region: r }
 
     const isSelected = hGene && geneMatches(r.gene, hGene)
-    return { value: r.avgDepth, itemStyle: { color: isSelected ? '#6b7280' : '#e5e7eb' }, _region: r }
+    return { value, itemStyle: { color: isSelected ? '#6b7280' : '#e5e7eb', borderRadius: radius }, _region: r }
   })
 
   // Build one annotation entry per target that overlaps regions on the current chrom
   const annotations = targets.map(t => {
     if (!t.start || !t.end) return null
     const indices = regs.reduce((acc, r, i) => {
-      if (r.start <= t.end && r.end >= t.start) acc.push(i)
+      if (r.start <= t.end && r.end >= t.start) acc.push(regIndexToSlot[i])
       return acc
     }, [])
     if (!indices.length) return null
     return { startIdx: indices[0], endIdx: indices[indices.length - 1], type: t.type }
   }).filter(Boolean)
+
+  // Gene track — one label per contiguous run of regions sharing the same gene(s), grouped by
+  // the BED file's own gene field (so runs always match what the coverage file itself calls
+  // that region), but also collecting every distinct GTF gene_name seen across the run so the
+  // label can show both. A region can list more than one gene ("GENE1,GENE2") on either side
+  // when a target overlaps both — all are shown.
+  const bedGeneParts = (field) => (field || '').split(',').map(g => g.trim()).filter(Boolean)
+  const geneRuns = []
+  let currentRun = null
+  regs.forEach((r, i) => {
+    const parts = bedGeneParts(r.gene)
+    const key = parts.slice().sort().join(',')
+    if (!key) { currentRun = null; return }
+    const gtfParts = bedGeneParts(r.geneName)
+    if (currentRun && currentRun.key === key) {
+      currentRun.endIdx = regIndexToSlot[i]
+      if (!currentRun.strand && r.strand) currentRun.strand = r.strand
+      gtfParts.forEach(g => currentRun.gtfGenes.add(g))
+    } else {
+      currentRun = { key, genes: parts, strand: r.strand || '', gtfGenes: new Set(gtfParts), startIdx: regIndexToSlot[i], endIdx: regIndexToSlot[i] }
+      geneRuns.push(currentRun)
+    }
+  })
 
   // Match a hovered coverage region back to a selected/navigated CNV target
   // (targets carry cn_labels/classification from the consensus table; coverage regions don't).
@@ -323,7 +444,8 @@ const option = computed(() => {
       borderColor: '#e5e7eb',
       textStyle: { color: '#1f2937', fontSize: 12 },
       formatter(params) {
-        const p = params.find(p => p.data?._region) || params[0]
+        const p = params.find(p => p.data?._region)
+        if (!p) return '' // hovering a spacer slot (the gap between regions) — nothing to show
         const r = p.data._region
         const label = r.gene || ''
         const chromStr = r.chrom ? `chr${r.chrom}: ` : ''
@@ -331,7 +453,21 @@ const option = computed(() => {
         // "Target region" = this exon/target region from the coverage file (what's actually
         // hovered). "Variant region" = the selected CNV's own start–end, which usually spans
         // several target regions, so it's shown separately rather than conflated with the above.
-        let html = `Target region: <b>${chromStr}${pos}</b><br/>${label ? `Gene name: <b>${label}</b><br/>` : ''}Avg depth: <b>${r.avgDepth.toFixed(1)}×</b>`
+        let html = `Target region: <b>${chromStr}${pos}</b><br/>${label ? `Gene name: <b>${label}</b><br/>` : ''}`
+        if (r.geneName && r.geneName !== label) html += `Annotated gene: <b>${r.geneName}</b><br/>`
+        if (r.exon)       html += `Exon: <b>${r.exon}</b><br/>`
+        if (r.transcript) html += `Transcript: <b>${r.transcript}</b><br/>`
+        if (r.strand)     html += `Strand: <b>${r.strand}</b><br/>`
+        if (r.geneType)   html += `Gene type: <b>${r.geneType}</b><br/>`
+        html += `Avg depth: <b>${r.avgDepth.toFixed(1)}×</b>`
+        if (r.stdevDepth != null) html += ` <span style="color:#9ca3af">(±${r.stdevDepth.toFixed(1)}×)</span>`
+        if (normalizeToAvg.value) {
+          const { value: b, source } = baselineFor(r)
+          const delta = r.avgDepth - b
+          const color = delta >= 0 ? '#16a34a' : '#dc2626'
+          const vsLabel = source === 'cohort' ? 'cohort avg' : 'sample avg'
+          html += `<br/><span style="color:${color}">${delta >= 0 ? '+' : ''}${delta.toFixed(1)}× vs ${vsLabel}</span>`
+        }
         if (showCohort) {
           const cohortAvg = getCohortAverage(r.chrom, r.start, r.end)
           if (cohortAvg !== null) html += `<br/>Cohort avg: <b>${cohortAvg.toFixed(1)}×</b>`
@@ -353,12 +489,17 @@ const option = computed(() => {
         textStyle: { color: '#9ca3af', fontSize: 9 },
       }
     ],
-    grid: { top: 36, left: 64, right: 16, bottom: 58 },
+    // Normalized mode can show wider tick labels (negative numbers, e.g. "-550") than the
+    // plain positive-depth axis — a little extra left margin keeps them clear of the axis name.
+    // Extra top margin reserves dedicated space for the gene + variant header rows above the
+    // plot area, so they never depend on (and can't collide with) the y-axis headroom padding.
+    grid: { top: 36 + HEADER_MARGIN, left: normalizeToAvg.value ? 74 : 64, right: 16, bottom: 58 },
     xAxis: {
       type: 'category',
       data: xLabels,
-      axisLabel: { color: '#9ca3af', fontSize: 10, rotate: 45 },
-      axisTick:  { show: true, lineStyle: { color: '#e5e7eb' } },
+      // Spacer slots (the gaps between regions) carry no label — skip ticks/labels for them
+      axisLabel: { color: '#9ca3af', fontSize: 10, rotate: 45, interval: (i) => slots[i]?.real },
+      axisTick:  { show: true, lineStyle: { color: '#e5e7eb' }, interval: (i) => slots[i]?.real },
       axisLine:  { show: false },
       name: selectedChrom.value ? `chr${selectedChrom.value}` : '',
       nameLocation: 'middle',
@@ -367,28 +508,100 @@ const option = computed(() => {
     },
     yAxis: {
       type: 'value',
-      name: 'Avg Depth (×)',
+      name: normalizeToAvg.value ? 'Depth vs avg (×)' : 'Avg Depth (×)',
       nameLocation: 'middle',
       nameGap: 44,
       nameTextStyle: { color: '#6b7280', fontSize: 11, fontWeight: 'bold' },
       axisLabel: { color: '#9ca3af', fontSize: 10 },
       splitLine: { lineStyle: { color: '#f3f4f6' } },
-      min: 0,
-      max: (() => {
-        // True max of everything actually plotted (bars/line + cohort overlay when shown),
-        // so no bar gets clipped at the top — with a little headroom above it.
-        const values = regs.map(r => r.avgDepth)
+      ...(() => {
+        // True range of everything actually plotted (bars/line + cohort overlay + whiskers,
+        // all already shifted per-region above), so nothing gets clipped — with a little
+        // headroom. Normalized mode gets a symmetric range around 0 for an even over/under look.
+        const values = regs.map(r => r.avgDepth - baselineFor(r).value)
         if (showCohort) {
           for (const r of cohortLineData) {
             if (r.value !== null && r.value !== undefined) values.push(r.value)
           }
         }
+        for (const [, lo, hi] of errorBarData) { values.push(lo); values.push(hi) }
+
+        if (normalizeToAvg.value) {
+          const maxAbs = values.length ? Math.max(...values.map(v => Math.abs(v))) : 20
+          const bound = Math.max(20, Math.ceil(maxAbs * 1.2 / 10) * 10)
+          return { min: -bound, max: bound }
+        }
         const maxVal = values.length ? Math.max(...values) : 160
-        return Math.max(160, Math.ceil(maxVal * 1.1 / 10) * 10)
+        return { min: 0, max: Math.max(160, Math.ceil(maxVal * 1.2 / 10) * 10) }
       })(),
     },
     series: [
-    // Variant annotation track — one entry per selected variant on this chrom
+    // Gene track — one label per contiguous run of same-gene regions, rendered in the
+    // dedicated header margin above the plot (not `clip`ped — it lives outside the coordSys
+    // rect on purpose — so left/right are clamped to the grid's own horizontal bounds by hand,
+    // the same protection `clip` gives the data series below).
+    {
+      type: 'custom',
+      z: 21,
+      silent: true,
+      data: geneRuns.map(g => [g.startIdx, g.endIdx]),
+      renderItem(params, api) {
+        const run = geneRuns[params.dataIndex]
+        if (!run) return null
+        const startIdx = api.value(0)
+        const endIdx   = api.value(1)
+        const [x1] = api.coord([startIdx, 0])
+        const [x2] = api.coord([endIdx,   0])
+        const halfBar = api.size([1, 0])[0] / 2
+        const left    = Math.max(x1 - halfBar, params.coordSys.x)
+        const right   = Math.min(x2 + halfBar, params.coordSys.x + params.coordSys.width)
+        const h       = GENE_ROW_H
+        const top     = params.coordSys.y - HEADER_GAP - VARIANT_ROW_H - HEADER_GAP - h
+        const midX    = (left + right) / 2
+
+        // Label: BED gene name(s), plus the GTF-annotated name(s) in parens when they differ
+        // from the BED name — e.g. "AIP (AURKAIP1)".
+        const bedSet  = new Set(run.genes)
+        const gtfList = [...run.gtfGenes]
+        const gtfDiffers = gtfList.length && (gtfList.length !== run.genes.length || gtfList.some(g => !bedSet.has(g)))
+        const text = run.genes.join(', ') + (gtfDiffers ? ` (${gtfList.join(', ')})` : '')
+
+        // Shape: an arrow pointing in the direction of transcription instead of a plain box —
+        // a flat rect when strand is unknown.
+        const arrowLen = Math.min(6, (right - left) / 3)
+        let points
+        if (run.strand === '+') {
+          points = [[left, top], [right - arrowLen, top], [right, top + h / 2], [right - arrowLen, top + h], [left, top + h]]
+        } else if (run.strand === '-') {
+          points = [[right, top], [left + arrowLen, top], [left, top + h / 2], [left + arrowLen, top + h], [right, top + h]]
+        } else {
+          points = [[left, top], [right, top], [right, top + h], [left, top + h]]
+        }
+
+        return {
+          type: 'group',
+          children: [
+            {
+              type: 'polygon',
+              shape: { points },
+              style: { fill: '#eef2f7', stroke: '#cbd5e1', lineWidth: 1 },
+            },
+            {
+              type: 'text',
+              style: {
+                x: midX, y: top + h / 2,
+                text, width: right - left, overflow: 'truncate', ellipsis: '…',
+                fill: '#475569', fontSize: 9, fontWeight: 'bold',
+                textAlign: 'center', textVerticalAlign: 'middle',
+              },
+            },
+          ],
+        }
+      },
+    },
+    // Variant annotation track — one entry per selected variant on this chrom. Also rendered
+    // in the header margin (see gene track above), except for the full-height tint column,
+    // which intentionally reaches down into the plot's own (clipped) data area.
     {
       type: 'custom',
       z: 20,
@@ -403,18 +616,19 @@ const option = computed(() => {
         const [x1] = api.coord([startIdx, 0])
         const [x2] = api.coord([endIdx,   0])
         const halfBar = api.size([1, 0])[0] / 2
-        const left    = x1 - halfBar
-        const right   = x2 + halfBar
-        const top     = params.coordSys.y
-        const h       = 12
+        const left    = Math.max(x1 - halfBar, params.coordSys.x)
+        const right   = Math.min(x2 + halfBar, params.coordSys.x + params.coordSys.width)
+        const h       = VARIANT_ROW_H
+        const top     = params.coordSys.y - HEADER_GAP - h
         const midX    = (left + right) / 2
         return {
           type: 'group',
           children: [
-            // Full-height background column
+            // Full-height background column — starts at the true top of the plot area (not
+            // the header row above it) and reaches down through the bars.
             {
               type: 'rect',
-              shape: { x: left, y: top + h, width: right - left, height: params.coordSys.height - h },
+              shape: { x: left, y: params.coordSys.y, width: right - left, height: params.coordSys.height },
               style: { fill: color, opacity: 0.07 },
             },
             // Annotation pill
@@ -439,15 +653,16 @@ const option = computed(() => {
     {
       type: 'bar',
       data: barData,
-      barMaxWidth: 24,
+      barMaxWidth: 60,
       z: 3,
-      itemStyle: { borderRadius: [3, 3, 0, 0] },
+      clip: true,
       label: { show: false },
     },
     {
       type: 'line',
       data: lineData,
       z: 4,
+      clip: true,
       symbol: 'circle',
       symbolSize: 6,
       lineStyle: { color: '#21a8c2', width: 1.5 },
@@ -455,13 +670,19 @@ const option = computed(() => {
       markLine: {
         silent: true,
         symbol: 'none',
-        data: [
-          {
-            yAxis: 150,
-            lineStyle: { color: '#eab308', type: 'dashed', width: 1.5 },
-            label: { position: 'insideStartTop', formatter: '150×', color: '#eab308', fontSize: 10 }
-          }
-        ]
+        data: normalizeToAvg.value
+          // The 150× absolute threshold isn't meaningful once the axis is re-centered on the
+          // mean — show the 0 (= average) baseline instead, which is the whole point of this mode.
+          ? [{
+              yAxis: 0,
+              lineStyle: { color: '#9ca3af', type: 'dashed', width: 1.5 },
+              label: { position: 'insideStartTop', formatter: 'avg', color: '#6b7280', fontSize: 10 }
+            }]
+          : [{
+              yAxis: 150,
+              lineStyle: { color: '#eab308', type: 'dashed', width: 1.5 },
+              label: { position: 'insideStartTop', formatter: '150×', color: '#eab308', fontSize: 10 }
+            }]
       }
     },
     // Cohort-average overlay — transparent red, only added when the toggle is on
@@ -469,10 +690,38 @@ const option = computed(() => {
       type: 'line',
       data: cohortLineData,
       z: 6,
+      clip: true,
       symbol: 'none',
       connectNulls: true,
       lineStyle: { color: 'rgba(239,68,68,0.55)', width: 2 },
-    }] : [])]
+    }] : []),
+    // Whiskers — avg depth ± 1 stdev, drawn as a vertical line with top/bottom caps
+    {
+      name: 'Depth ±1 SD',
+      type: 'custom',
+      z: 5,
+      silent: true,
+      clip: true,
+      data: errorBarData,
+      renderItem(params, api) {
+        const idx = api.value(0)
+        const lo  = api.value(1)
+        const hi  = api.value(2)
+        const [x, yLo] = api.coord([idx, lo])
+        const [, yHi]  = api.coord([idx, hi])
+        const cap = 12
+        const style = { stroke: '#374151', lineWidth: 1.5 }
+        return {
+          type: 'group',
+          children: [
+            { type: 'line', shape: { x1: x, y1: yLo, x2: x, y2: yHi }, style },
+            { type: 'line', shape: { x1: x - cap, y1: yLo, x2: x + cap, y2: yLo }, style },
+            { type: 'line', shape: { x1: x - cap, y1: yHi, x2: x + cap, y2: yHi }, style },
+          ],
+        }
+      },
+    },
+    ]
   }
 })
 
@@ -577,17 +826,36 @@ const option = computed(() => {
           >Reset</button>
         </div>
 
-        <!-- Cohort-average overlay toggle -->
-        <label class="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none">
+        <!-- Cohort-average overlay toggle — hidden while normalized, since the plot is
+             already centered on the cohort average at that point (showing both is redundant) -->
+        <label v-if="!normalizeToAvg" class="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none">
           <input type="checkbox" v-model="showCohortAvg" class="rounded border-gray-300 text-red-400 focus:ring-red-300 focus:ring-offset-0" />
           <span class="inline-block w-3 h-3 rounded-sm" style="background: rgba(239,68,68,0.55)"></span>
           Display cohort average
         </label>
 
+        <!-- Normalize to average — re-centers the plot so each region's cohort average is 0,
+             showing over/under deviations instead of an absolute value -->
+        <button
+          @click="normalizeToAvg = !normalizeToAvg"
+          title="Re-center the plot on each region's cohort average, showing over/under deviations instead of absolute depth"
+          :class="[
+            'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-colors',
+            normalizeToAvg
+              ? 'bg-teal-50 border-teal-300 text-teal-700'
+              : 'bg-white border-gray-200 text-gray-500 hover:border-teal-400 hover:text-teal-600',
+          ]"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="w-3.5 h-3.5">
+            <path d="M3 12h18M7 7l-4 5 4 5M17 7l4 5-4 5"/>
+          </svg>
+          Normalize to average
+        </button>
+
         <!-- Everything else — pushed to the right, where the zoom controls used to be -->
         <div class="flex items-center gap-3 flex-wrap ml-auto">
           <span v-if="loading" class="text-xs text-gray-400 animate-pulse">Loading coverage data…</span>
-          <span v-if="showCohortAvg && cohortAverageLoading" class="text-xs text-gray-400 animate-pulse">Computing cohort average…</span>
+          <span v-if="(showCohortAvg || normalizeToAvg) && cohortAverageLoading" class="text-xs text-gray-400 animate-pulse">Computing cohort average…</span>
           <span v-if="cohortAverageError" class="text-xs text-red-500">{{ cohortAverageError }}</span>
 
           <!-- Stats chips -->
@@ -603,6 +871,7 @@ const option = computed(() => {
               <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#6b7280]"></span>Selected gene</span>
               <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#ef4444]"></span>DEL</span>
               <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm bg-[#3b82f6]"></span>DUP</span>
+              <span v-if="hasStdev" class="flex items-center gap-1"><span class="inline-block w-3 border-t-2 border-gray-600"></span>±1 SD</span>
             </span>
           </template>
         </div>
@@ -616,6 +885,7 @@ const option = computed(() => {
         autoresize
         style="width: 100%; height: 320px"
         @datazoom="onDataZoom"
+        @click="onChartClick"
       />
 
       <!-- Empty state -->

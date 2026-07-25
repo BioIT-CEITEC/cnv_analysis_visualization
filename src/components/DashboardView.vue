@@ -225,7 +225,7 @@ function onTableNavigate(targets) {
                 <ChartInfo
                   file="all_samples_smoothed.tsv"
                   :columns="['sample','CHROM','START','END','BED_gene_name','type','n_callers','callers','classifications','target_names']"
-                  description="Lists all CNV calls passing the current filters. Each row is one consensus CNV event. The Callers column shows how many tools detected it; Classification shows the clinical significance. Sortable by any column. Click 'Filter' to show a per-column filter row (text for most, a dropdown for Type/Classification), hidden by default. 6 rows per page."
+                  description="Lists all CNV calls passing the current filters. Each row is one consensus CNV event. The Callers column shows how many tools detected it; Classification shows the clinical significance. Transcript ID is looked up from that row's sample coverage file (BED-derived), not the consensus TSV. Sortable by any column. Click 'Filter' to show a per-column filter row (text for most, a dropdown for Type/Classification), hidden by default. 6 rows per page."
                 />
                 <DownloadButton title="Download as .xlsx" @click="downloadTable" />
               </div>

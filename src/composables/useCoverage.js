@@ -31,9 +31,55 @@ export const coverageGeneList = computed(() => {
   return data ? Object.keys(data).sort() : []
 })
 
+// Bumped whenever ensureAllCoverageParsed() finishes parsing new samples — lets callers
+// (e.g. the data table's transcript-ID column) react to background parsing completing.
+export const parsedVersion = ref(0)
+
+/** Parses every loaded sample's coverage file that hasn't been parsed yet (skipping ones
+ *  already cached). Used by the data table to look up overlapping transcript IDs across the
+ *  whole cohort, not just whichever single sample is currently shown in the coverage chart. */
+export async function ensureAllCoverageParsed() {
+  let changed = false
+  for (const [sampleId, file] of Object.entries(coverageFilesMap.value)) {
+    if (parsedCache[sampleId]) continue
+    try {
+      const text = await file.text()
+      parsedCache[sampleId] = parseCompact(text)
+      changed = true
+    } catch {
+      // Leave unparsed — transcript lookups for this sample will just return none.
+    }
+  }
+  if (changed) parsedVersion.value++
+}
+
+/** Distinct transcript IDs (sorted) from `sampleId`'s coverage regions that overlap
+ *  [start, end] on the given chromosome. [] if that sample has no parsed coverage data. */
+export function getTranscriptsForRegion(sampleId, chrom, start, end) {
+  const data = parsedCache[sampleId]
+  if (!data) return []
+  const norm = c => String(c).replace(/^chr/i, '')
+  const chromNorm = norm(chrom)
+  const found = new Set()
+  for (const regions of Object.values(data)) {
+    for (const r of regions) {
+      if (r.transcript && norm(r.chrom) === chromNorm && r.start <= end && r.end >= start) found.add(r.transcript)
+    }
+  }
+  return [...found].sort()
+}
+
+// "AURKAIP1[ENST00000338338]:exon4" → { transcript: 'ENST00000338338', exon: 'exon4' }
+function parseExonInfo(raw) {
+  const m = /^.*?\[(.*?)\]:(.*)$/.exec(raw || '')
+  return m ? { transcript: m[1], exon: m[2] } : { transcript: '', exon: '' }
+}
+
 // ── TSV → compact format parser (runs in browser at runtime) ───────────────────
-// 8 columns, no header
-// chrom  start  end  gene  avg_coverage  region_length  bases_covered  fraction_covered
+// 13 columns, no header (older files have 9 — no strand/gene_type/gene_name/exon info —
+// or 8, predating stdev_coverage too)
+// chrom  start  end  gene  avg_coverage  stdev_coverage  region_length  bases_covered
+// fraction_covered  strand  gene_type  gene_name  transcript_exon (e.g. "GENE[ENST...]:exon4")
 function parseCompact(text) {
   const geneMap = {}
   const lines   = text.split('\n')
@@ -43,16 +89,28 @@ function parseCompact(text) {
     const cols = line.split('\t')
     if (cols.length < 8) continue
 
+    const hasStdev = cols.length >= 9
+    const hasExtra = cols.length >= 13
+
     const chrom        = cols[0]
     const start        = parseInt(cols[1])
-    const end          = parseInt(cols[2])
-    const gene         = cols[3]
+    const end           = parseInt(cols[2])
+    const gene          = cols[3]
     const avgDepth      = parseFloat(cols[4]) || 0
-    const regionLength = parseInt(cols[5])
-    const fractionCovered = parseFloat(cols[7])
+    const stdevDepth    = hasStdev ? (parseFloat(cols[5]) || 0) : null
+    const regionLength  = parseInt(cols[hasStdev ? 6 : 5])
+    const fractionCovered = parseFloat(cols[hasStdev ? 8 : 7])
+
+    const strand   = hasExtra ? cols[9]  : ''
+    const geneType = hasExtra ? cols[10] : ''
+    const geneName = hasExtra ? cols[11] : ''
+    const { transcript, exon } = hasExtra ? parseExonInfo(cols[12]) : { transcript: '', exon: '' }
 
     if (!geneMap[gene]) geneMap[gene] = []
-    geneMap[gene].push({ chrom, start, end, gene, avgDepth, regionLength, fractionCovered })
+    geneMap[gene].push({
+      chrom, start, end, gene, avgDepth, stdevDepth, regionLength, fractionCovered,
+      strand, geneType, geneName, transcript, exon,
+    })
   }
 
   // Sort each gene's regions by chrom then start
