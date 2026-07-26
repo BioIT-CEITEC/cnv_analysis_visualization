@@ -407,9 +407,9 @@ const option = computed(() => {
 
   // Gene track — one label per contiguous run of regions sharing the same gene(s), grouped by
   // the BED file's own gene field (so runs always match what the coverage file itself calls
-  // that region), but also collecting every distinct GTF gene_name seen across the run so the
-  // label can show both. A region can list more than one gene ("GENE1,GENE2") on either side
-  // when a target overlaps both — all are shown.
+  // that region). The visible arrow label only shows the BED name(s); the GTF gene_name(s) and
+  // every distinct strand seen across the run (regions within one BED-named run can disagree,
+  // e.g. an overlapping antisense feature) are collected too, surfaced on hover instead.
   const bedGeneParts = (field) => (field || '').split(',').map(g => g.trim()).filter(Boolean)
   const geneRuns = []
   let currentRun = null
@@ -420,10 +420,13 @@ const option = computed(() => {
     const gtfParts = bedGeneParts(r.geneName)
     if (currentRun && currentRun.key === key) {
       currentRun.endIdx = regIndexToSlot[i]
-      if (!currentRun.strand && r.strand) currentRun.strand = r.strand
+      if (r.strand) currentRun.strands.add(r.strand)
       gtfParts.forEach(g => currentRun.gtfGenes.add(g))
     } else {
-      currentRun = { key, genes: parts, strand: r.strand || '', gtfGenes: new Set(gtfParts), startIdx: regIndexToSlot[i], endIdx: regIndexToSlot[i] }
+      currentRun = {
+        key, genes: parts, gtfGenes: new Set(gtfParts), strands: new Set(r.strand ? [r.strand] : []),
+        startIdx: regIndexToSlot[i], endIdx: regIndexToSlot[i],
+      }
       geneRuns.push(currentRun)
     }
   })
@@ -543,7 +546,23 @@ const option = computed(() => {
     {
       type: 'custom',
       z: 21,
-      silent: true,
+      tooltip: {
+        trigger: 'item',
+        backgroundColor: '#ffffff',
+        borderColor: '#e5e7eb',
+        textStyle: { color: '#1f2937', fontSize: 12 },
+        formatter(params) {
+          const run = geneRuns[params.dataIndex]
+          if (!run) return ''
+          const strandList = [...run.strands]
+          const strandLabel = s => s === '+' ? '+ (forward)' : s === '-' ? '− (reverse)' : s
+          let html = `BED gene: <b>${run.genes.join(', ')}</b>`
+          if (run.gtfGenes.size) html += `<br/>GTF gene: <b>${[...run.gtfGenes].join(', ')}</b>`
+          if (strandList.length === 1) html += `<br/>Strand: <b>${strandLabel(strandList[0])}</b>`
+          else if (strandList.length > 1) html += `<br/>Strand: <b>mixed (${strandList.map(strandLabel).join(', ')})</b>`
+          return html
+        },
+      },
       data: geneRuns.map(g => [g.startIdx, g.endIdx]),
       renderItem(params, api) {
         const run = geneRuns[params.dataIndex]
@@ -559,20 +578,19 @@ const option = computed(() => {
         const top     = params.coordSys.y - HEADER_GAP - VARIANT_ROW_H - HEADER_GAP - h
         const midX    = (left + right) / 2
 
-        // Label: BED gene name(s), plus the GTF-annotated name(s) in parens when they differ
-        // from the BED name — e.g. "AIP (AURKAIP1)".
-        const bedSet  = new Set(run.genes)
-        const gtfList = [...run.gtfGenes]
-        const gtfDiffers = gtfList.length && (gtfList.length !== run.genes.length || gtfList.some(g => !bedSet.has(g)))
-        const text = run.genes.join(', ') + (gtfDiffers ? ` (${gtfList.join(', ')})` : '')
+        // Label: BED gene name(s) only — the GTF name(s) and strand detail surface on hover.
+        const text = run.genes.join(', ')
 
         // Shape: an arrow pointing in the direction of transcription instead of a plain box —
-        // a flat rect when strand is unknown.
+        // a flat rect when strand is unknown. When a run has mixed strands (rare — usually an
+        // overlapping antisense feature on part of it), the shape just uses the first seen;
+        // the tooltip is what actually calls out the mix.
+        const shapeStrand = [...run.strands][0] || ''
         const arrowLen = Math.min(6, (right - left) / 3)
         let points
-        if (run.strand === '+') {
+        if (shapeStrand === '+') {
           points = [[left, top], [right - arrowLen, top], [right, top + h / 2], [right - arrowLen, top + h], [left, top + h]]
-        } else if (run.strand === '-') {
+        } else if (shapeStrand === '-') {
           points = [[right, top], [left + arrowLen, top], [left, top + h / 2], [left + arrowLen, top + h], [right, top + h]]
         } else {
           points = [[left, top], [right, top], [right, top + h], [left, top + h]]
