@@ -69,10 +69,15 @@ export function getTranscriptsForRegion(sampleId, chrom, start, end) {
   return [...found].sort()
 }
 
+// "NA" is this file's placeholder for a missing value — treat it as empty everywhere.
+const cleanNA = (v) => (v === 'NA' ? '' : v)
+
 // "AURKAIP1[ENST00000338338]:exon4" → { transcript: 'ENST00000338338', exon: 'exon4' }
+// The ":exonN" suffix is optional — "AURKAIP1[ENST00000338338]" alone (no exon) means the
+// position falls inside that transcript but not in a named exon, i.e. it's intronic.
 function parseExonInfo(raw) {
-  const m = /^.*?\[(.*?)\]:(.*)$/.exec(raw || '')
-  return m ? { transcript: m[1], exon: m[2] } : { transcript: '', exon: '' }
+  const m = /^.*?\[(.*?)\](?::(.*))?$/.exec(raw || '')
+  return m ? { transcript: m[1], exon: m[2] || '' } : { transcript: '', exon: '' }
 }
 
 // ── TSV → compact format parser (runs in browser at runtime) ───────────────────
@@ -101,10 +106,13 @@ function parseCompact(text) {
     const regionLength  = parseInt(cols[hasStdev ? 6 : 5])
     const fractionCovered = parseFloat(cols[hasStdev ? 8 : 7])
 
-    const strand   = hasExtra ? cols[9]  : ''
-    const geneType = hasExtra ? cols[10] : ''
-    const geneName = hasExtra ? cols[11] : ''
-    const { transcript, exon } = hasExtra ? parseExonInfo(cols[12]) : { transcript: '', exon: '' }
+    const strand   = hasExtra ? cleanNA(cols[9])  : ''
+    const geneType = hasExtra ? cleanNA(cols[10]) : ''
+    const geneName = hasExtra ? cleanNA(cols[11]) : ''
+    let { transcript, exon } = hasExtra ? parseExonInfo(cols[12]) : { transcript: '', exon: '' }
+    // A protein-coding hit with a transcript but no exon number means the position falls
+    // between exons of that transcript, i.e. it's intronic — call it out explicitly.
+    if (geneType === 'protein_coding' && transcript && !exon) exon = 'Intronic'
 
     if (!geneMap[gene]) geneMap[gene] = []
     geneMap[gene].push({

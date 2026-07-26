@@ -457,11 +457,15 @@ const option = computed(() => {
         // hovered). "Variant region" = the selected CNV's own start–end, which usually spans
         // several target regions, so it's shown separately rather than conflated with the above.
         let html = `Target region: <b>${chromStr}${pos}</b><br/>${label ? `Gene name: <b>${label}</b><br/>` : ''}`
-        if (r.geneName && r.geneName !== label) html += `Annotated gene: <b>${r.geneName}</b><br/>`
-        if (r.exon)       html += `Exon: <b>${r.exon}</b><br/>`
-        if (r.transcript) html += `Transcript: <b>${r.transcript}</b><br/>`
-        if (r.strand)     html += `Strand: <b>${r.strand}</b><br/>`
-        if (r.geneType)   html += `Gene type: <b>${r.geneType}</b><br/>`
+        if (!r.geneName && !r.geneType && !r.strand && !r.transcript && !r.exon) {
+          html += `GTF annotation: <span style="color:#9ca3af">No annotation available</span><br/>`
+        } else {
+          if (r.geneName && r.geneName !== label) html += `Annotated gene: <b>${r.geneName}</b><br/>`
+          if (r.exon)       html += `Exon: <b>${r.exon}</b><br/>`
+          if (r.transcript) html += `Transcript: <b>${r.transcript}</b><br/>`
+          if (r.strand)     html += `Strand: <b>${r.strand}</b><br/>`
+          if (r.geneType)   html += `Gene type: <b>${r.geneType}</b><br/>`
+        }
         html += `Avg depth: <b>${r.avgDepth.toFixed(1)}×</b>`
         if (r.stdevDepth != null) html += ` <span style="color:#9ca3af">(±${r.stdevDepth.toFixed(1)}×)</span>`
         if (normalizeToAvg.value) {
@@ -558,6 +562,7 @@ const option = computed(() => {
           const strandLabel = s => s === '+' ? '+ (forward)' : s === '-' ? '− (reverse)' : s
           let html = `BED gene: <b>${run.genes.join(', ')}</b>`
           if (run.gtfGenes.size) html += `<br/>GTF gene: <b>${[...run.gtfGenes].join(', ')}</b>`
+          else html += `<br/>GTF gene: <span style="color:#9ca3af">No annotation available</span>`
           if (strandList.length === 1) html += `<br/>Strand: <b>${strandLabel(strandList[0])}</b>`
           else if (strandList.length > 1) html += `<br/>Strand: <b>mixed (${strandList.map(strandLabel).join(', ')})</b>`
           return html
