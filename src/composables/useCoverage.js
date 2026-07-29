@@ -6,9 +6,12 @@ const parsedCache      = {}       // { sampleId: { gene: [{chrom,start,end,gene,
 const currentSample    = ref('')
 export const coverageSelectedGene = ref('')
 
-// Cohort-wide average depth per region, computed lazily across every loaded sample.
-// { 'chrom:start-end': avgDepthAcrossCohort } | null (not computed yet)
+// Cohort-wide average depth AND standard deviation per region (across samples, not within a
+// region), computed lazily together in one pass across every loaded sample. Both
+// { 'chrom:start-end': value } | null (not computed yet). The stdev is what turns the
+// "normalize" plot mode into an actual per-region z-score instead of a flat depth offset.
 const cohortAverageMap     = ref(null)
+const cohortStdevMap       = ref(null)
 const cohortAverageLoading = ref(false)
 const cohortAverageError   = ref('')
 
@@ -18,6 +21,7 @@ export function setCoverageFiles(map) {
   Object.keys(parsedCache).forEach(k => delete parsedCache[k])
   currentSample.value = ''
   cohortAverageMap.value = null
+  cohortStdevMap.value = null
   cohortAverageError.value = ''
 }
 
@@ -187,7 +191,8 @@ export function useCoverage() {
 
   const cohortAverageReady = computed(() => !!cohortAverageMap.value)
 
-  /** Computes, once per loaded dataset, the average depth per region across every sample. */
+  /** Computes, once per loaded dataset, the mean AND standard deviation of depth per region
+   *  across every sample (a single pass over every file — sum and sum-of-squares together). */
   async function loadCohortAverage() {
     if (cohortAverageMap.value || cohortAverageLoading.value) return
     const files = Object.values(coverageFilesMap.value)
@@ -196,7 +201,7 @@ export function useCoverage() {
     cohortAverageLoading.value = true
     cohortAverageError.value   = ''
     try {
-      const sums = {} // 'chrom:start-end' → { sum, count }
+      const sums = {} // 'chrom:start-end' → { sum, sumSq, count }
       for (const file of files) {
         const text = await file.text()
         for (const line of text.split('\n')) {
@@ -205,16 +210,24 @@ export function useCoverage() {
           if (cols.length < 8) continue
           const avgDepth = parseFloat(cols[4]) || 0
           const key = `${cols[0]}:${cols[1]}-${cols[2]}`
-          const bucket = sums[key] || (sums[key] = { sum: 0, count: 0 })
+          const bucket = sums[key] || (sums[key] = { sum: 0, sumSq: 0, count: 0 })
           bucket.sum   += avgDepth
+          bucket.sumSq += avgDepth * avgDepth
           bucket.count += 1
         }
       }
-      const result = {}
-      for (const [key, { sum, count }] of Object.entries(sums)) {
-        result[key] = count > 0 ? sum / count : 0
+      const meanResult  = {}
+      const stdevResult = {}
+      for (const [key, { sum, sumSq, count }] of Object.entries(sums)) {
+        const mean = count > 0 ? sum / count : 0
+        // Clamp at 0 — floating-point rounding can otherwise push this fractionally negative
+        // when every sample has (near) identical depth for a region.
+        const variance = count > 0 ? Math.max(0, sumSq / count - mean * mean) : 0
+        meanResult[key]  = mean
+        stdevResult[key] = Math.sqrt(variance)
       }
-      cohortAverageMap.value = result
+      cohortAverageMap.value = meanResult
+      cohortStdevMap.value   = stdevResult
     } catch (e) {
       cohortAverageError.value = `Failed to compute cohort average: ${e.message}`
     } finally {
@@ -229,8 +242,16 @@ export function useCoverage() {
     return v === undefined ? null : v
   }
 
+  /** Standard deviation of depth for a region across the whole cohort, or null if not
+   *  (yet) available. */
+  function getCohortStdev(chrom, start, end) {
+    if (!cohortStdevMap.value) return null
+    const v = cohortStdevMap.value[`${chrom}:${start}-${end}`]
+    return v === undefined ? null : v
+  }
+
   return {
     coverageGeneList, getGeneData, loading, error, loaded, load, currentSample,
-    loadCohortAverage, getCohortAverage, cohortAverageReady, cohortAverageLoading, cohortAverageError,
+    loadCohortAverage, getCohortAverage, getCohortStdev, cohortAverageReady, cohortAverageLoading, cohortAverageError,
   }
 }

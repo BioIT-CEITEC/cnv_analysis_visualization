@@ -32,7 +32,7 @@ function geneMatches(regionGene, targetGeneField) {
 
 const {
   getGeneData, loading, error, loaded, load, currentSample,
-  loadCohortAverage, getCohortAverage, cohortAverageReady, cohortAverageLoading, cohortAverageError,
+  loadCohortAverage, getCohortAverage, getCohortStdev, cohortAverageReady, cohortAverageLoading, cohortAverageError,
 } = useCoverage()
 
 // Cohort-average overlay — off by default; computed lazily the first time it's enabled
@@ -279,8 +279,8 @@ function depthColor(d) {
 
 const hasStdev = computed(() => regions.value.some(r => r.stdevDepth != null))
 
-// Length-weighted mean depth across the regions currently shown — the reference point
-// the "Normalize to average" toggle re-centers the plot on.
+// Length-weighted mean depth across the regions currently shown — feeds the "avg" stats chip
+// only. Normalization uses the per-region *cohort* mean/stdev instead (see zScoreFor below).
 const meanDepth = computed(() => {
   const regs = regions.value
   if (!regs.length) return 0
@@ -313,10 +313,10 @@ const stats = computed(() => {
   }
 })
 
-// "Normalize to average" — re-centers the plot so each region's expected depth (its own
-// cohort average, when available) is 0, showing over/under deviations instead of absolute
-// depth. This already IS "the average of the cohort", so the separate cohort-average
-// overlay toggle is hidden while this is on — showing both would be redundant.
+// "Normalize to cohort" — converts each region's depth to a z-score: standard deviations
+// from that exact region's own mean depth across the cohort (see zScoreFor in `option`
+// below). The cohort mean already IS the 0 line, so the separate cohort-average overlay
+// toggle is hidden while this is on — showing both would be redundant.
 const normalizeToAvg = ref(false)
 watch(normalizeToAvg, (on) => { if (on) loadCohortAverage() })
 
@@ -332,19 +332,27 @@ const option = computed(() => {
   const hGene = highlightGene.value
   const targets = props.jumpTo || []
 
-  // When normalized, every plotted value is shifted so each region's own expected depth sits
-  // at 0. That expected depth is the region's cohort average (a fairer reference than one
-  // flat number, since different regions have very different natural depths) — falling back
-  // to this sample's own chromosome-wide mean for regions with no cohort data (yet).
-  // Cohort-average is already what "normalize" centers on, so the separate cohort-average
+  // When normalized, every plotted value becomes a per-region z-score: how many cohort
+  // standard deviations this sample's depth is from that exact region's cohort mean — not a
+  // flat depth offset. Requires the region's own cohort mean AND stdev; when either isn't
+  // available yet (cohort stats still loading, or this region simply isn't in any loaded
+  // coverage file), the region is left unscaled (raw depth) rather than guessing with some
+  // other reference — mixing units would be worse than temporarily showing depth as-is.
+  // Cohort mean is already what 0 represents once normalized, so the separate cohort-average
   // overlay (below) is suppressed while normalized — showing it too would be redundant.
   const cohortReady = cohortAverageReady.value
-  function baselineFor(r) {
-    if (!normalizeToAvg.value) return { value: 0, source: 'none' }
-    const cohortAvg = cohortReady ? getCohortAverage(r.chrom, r.start, r.end) : null
-    return (cohortAvg !== null && cohortAvg !== undefined)
-      ? { value: cohortAvg, source: 'cohort' }
-      : { value: meanDepth.value, source: 'sample' }
+  function zScoreFor(r) {
+    if (!normalizeToAvg.value) return { shift: 0, scale: 1, source: 'off' }
+    if (!cohortReady) return { shift: 0, scale: 1, source: 'pending' }
+    const mean = getCohortAverage(r.chrom, r.start, r.end)
+    if (mean === null) return { shift: 0, scale: 1, source: 'no-data' }
+    const stdev = getCohortStdev(r.chrom, r.start, r.end)
+    if (!stdev || stdev <= 0) return { shift: mean, scale: 1, source: 'zero-variance' }
+    return { shift: mean, scale: stdev, source: 'cohort' }
+  }
+  const normFor = (r) => {
+    const { shift, scale } = zScoreFor(r)
+    return (r.avgDepth - shift) / scale
   }
 
   function typeColor(type) {
@@ -352,7 +360,7 @@ const option = computed(() => {
   }
 
   const lineData = slots.map(s => s.real
-    ? { value: s.region.avgDepth - baselineFor(s.region).value, itemStyle: { color: depthColor(s.region.avgDepth) }, _region: s.region }
+    ? { value: normFor(s.region), itemStyle: { color: depthColor(s.region.avgDepth) }, _region: s.region }
     : { value: null })
 
   // Cohort-average overlay: same region, averaged across every loaded sample — hidden while
@@ -367,13 +375,13 @@ const option = computed(() => {
     : []
 
   // Whiskers: avg depth ± 1 stdev, per region (only for regions that have a stdev value).
-  // Clamp the raw low bound at 0 before applying the normalization shift.
+  // Clamp the raw low bound at 0 before applying the z-score transform.
   const errorBarData = regs.reduce((acc, r, i) => {
     if (r.stdevDepth != null) {
-      const b  = baselineFor(r).value
+      const { shift, scale } = zScoreFor(r)
       const lo = Math.max(0, r.avgDepth - r.stdevDepth)
       const hi = r.avgDepth + r.stdevDepth
-      acc.push([regIndexToSlot[i], lo - b, hi - b])
+      acc.push([regIndexToSlot[i], (lo - shift) / scale, (hi - shift) / scale])
     }
     return acc
   }, [])
@@ -385,7 +393,7 @@ const option = computed(() => {
   const barData = slots.map(s => {
     if (!s.real) return { value: null }
     const r = s.region
-    const value  = r.avgDepth - baselineFor(r).value
+    const value  = normFor(r)
     const radius = value < 0 ? [0, 0, 3, 3] : [3, 3, 0, 0]
     const variant = targets.find(t => t.start && t.end && r.start <= t.end && r.end >= t.start)
     if (variant) return { value, itemStyle: { color: typeColor(variant.type), borderRadius: radius }, _region: r }
@@ -469,11 +477,18 @@ const option = computed(() => {
         html += `Avg depth: <b>${r.avgDepth.toFixed(1)}×</b>`
         if (r.stdevDepth != null) html += ` <span style="color:#9ca3af">(±${r.stdevDepth.toFixed(1)}×)</span>`
         if (normalizeToAvg.value) {
-          const { value: b, source } = baselineFor(r)
-          const delta = r.avgDepth - b
-          const color = delta >= 0 ? '#16a34a' : '#dc2626'
-          const vsLabel = source === 'cohort' ? 'cohort avg' : 'sample avg'
-          html += `<br/><span style="color:${color}">${delta >= 0 ? '+' : ''}${delta.toFixed(1)}× vs ${vsLabel}</span>`
+          const { shift, scale, source } = zScoreFor(r)
+          if (source === 'cohort') {
+            const z = (r.avgDepth - shift) / scale
+            const color = z >= 0 ? '#16a34a' : '#dc2626'
+            html += `<br/><span style="color:${color}">z = ${z >= 0 ? '+' : ''}${z.toFixed(2)} SD</span> <span style="color:#9ca3af">(cohort mean ${shift.toFixed(1)}×, SD ${scale.toFixed(1)}×)</span>`
+          } else if (source === 'zero-variance') {
+            html += `<br/><span style="color:#9ca3af">Cohort variance is 0 for this region — showing raw deviation from cohort mean (${(r.avgDepth - shift >= 0 ? '+' : '')}${(r.avgDepth - shift).toFixed(1)}×)</span>`
+          } else if (source === 'pending') {
+            html += `<br/><span style="color:#9ca3af">Computing cohort stats…</span>`
+          } else if (source === 'no-data') {
+            html += `<br/><span style="color:#9ca3af">No cohort data available for this region — showing raw depth</span>`
+          }
         }
         if (showCohort) {
           const cohortAvg = getCohortAverage(r.chrom, r.start, r.end)
@@ -515,7 +530,7 @@ const option = computed(() => {
     },
     yAxis: {
       type: 'value',
-      name: normalizeToAvg.value ? 'Depth vs avg (×)' : 'Avg Depth (×)',
+      name: normalizeToAvg.value ? 'Z-score (SD from cohort mean)' : 'Avg Depth (×)',
       nameLocation: 'middle',
       nameGap: 44,
       nameTextStyle: { color: '#6b7280', fontSize: 11, fontWeight: 'bold' },
@@ -523,9 +538,10 @@ const option = computed(() => {
       splitLine: { lineStyle: { color: '#f3f4f6' } },
       ...(() => {
         // True range of everything actually plotted (bars/line + cohort overlay + whiskers,
-        // all already shifted per-region above), so nothing gets clipped — with a little
-        // headroom. Normalized mode gets a symmetric range around 0 for an even over/under look.
-        const values = regs.map(r => r.avgDepth - baselineFor(r).value)
+        // all already transformed per-region above), so nothing gets clipped — with a little
+        // headroom. Normalized mode gets a symmetric range around 0, in SD units (much smaller
+        // scale than raw depth, so it needs its own floor/rounding instead of the depth one).
+        const values = regs.map(r => normFor(r))
         if (showCohort) {
           for (const r of cohortLineData) {
             if (r.value !== null && r.value !== undefined) values.push(r.value)
@@ -534,8 +550,8 @@ const option = computed(() => {
         for (const [, lo, hi] of errorBarData) { values.push(lo); values.push(hi) }
 
         if (normalizeToAvg.value) {
-          const maxAbs = values.length ? Math.max(...values.map(v => Math.abs(v))) : 20
-          const bound = Math.max(20, Math.ceil(maxAbs * 1.2 / 10) * 10)
+          const maxAbs = values.length ? Math.max(...values.map(v => Math.abs(v))) : 3
+          const bound = Math.max(3, Math.ceil(maxAbs * 1.2))
           return { min: -bound, max: bound }
         }
         const maxVal = values.length ? Math.max(...values) : 160
@@ -694,12 +710,12 @@ const option = computed(() => {
         silent: true,
         symbol: 'none',
         data: normalizeToAvg.value
-          // The 150× absolute threshold isn't meaningful once the axis is re-centered on the
-          // mean — show the 0 (= average) baseline instead, which is the whole point of this mode.
+          // The 150× absolute threshold isn't meaningful in z-score units — show the 0 SD
+          // (= cohort mean) baseline instead, which is the whole point of this mode.
           ? [{
               yAxis: 0,
               lineStyle: { color: '#9ca3af', type: 'dashed', width: 1.5 },
-              label: { position: 'insideStartTop', formatter: 'avg', color: '#6b7280', fontSize: 10 }
+              label: { position: 'insideStartTop', formatter: 'z=0', color: '#6b7280', fontSize: 10 }
             }]
           : [{
               yAxis: 150,
@@ -857,11 +873,11 @@ const option = computed(() => {
           Display cohort average
         </label>
 
-        <!-- Normalize to average — re-centers the plot so each region's cohort average is 0,
-             showing over/under deviations instead of an absolute value -->
+        <!-- Normalize to cohort — converts depth to a per-region z-score (SD from that
+             region's own cohort mean) instead of an absolute value -->
         <button
           @click="normalizeToAvg = !normalizeToAvg"
-          title="Re-center the plot on each region's cohort average, showing over/under deviations instead of absolute depth"
+          title="Show depth as a z-score — standard deviations from each region's own cohort mean — instead of absolute depth"
           :class="[
             'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-colors',
             normalizeToAvg
@@ -872,7 +888,7 @@ const option = computed(() => {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="w-3.5 h-3.5">
             <path d="M3 12h18M7 7l-4 5 4 5M17 7l4 5-4 5"/>
           </svg>
-          Normalize to average
+          Normalize to cohort (Z-score)
         </button>
 
         <!-- Everything else — pushed to the right, where the zoom controls used to be -->
