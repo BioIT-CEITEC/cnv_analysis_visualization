@@ -6,10 +6,7 @@ import { coverageSampleList } from "../composables/useCoverage.js";
 import { exportFormat, exportDPI } from "../composables/useExportSettings.js";
 import { downloadChartImage } from "../utils/exportChart.js";
 import FilterBar from "./FilterBar.vue";
-import GenomeOverview from "./charts/GenomeOverview.vue";
 import CnvTypeBar from "./charts/CnvTypePie.vue";
-import CallerConcordance from "./charts/CallerConcordance.vue";
-import CopyNumberScatter from "./charts/CopyNumberScatter.vue";
 import DataTable from "./charts/DataTable.vue";
 import GenomeCoverage from "./charts/GenomeCoverage.vue";
 import CohortTopGenes from "./charts/CohortTopGenes.vue";
@@ -260,7 +257,7 @@ function onTableNavigate(targets) {
               <ChartInfo
                 :file="['*.region_coverage.tsv', 'all_samples_smoothed.tsv']"
                 :columns="['chrom','start','end','gene','avg_coverage','region_length','bases_covered','fraction_covered','cn_labels','classifications']"
-                description="Average read depth per target region for the selected sample and gene. Each bar is one exon/target region. Hovering a region that overlaps the selected table row also shows its per-caller CN labels, classification, and dosage-sensitivity. Toggle 'Cohort avg' to overlay a transparent red line showing the average depth per region across every loaded sample. Select a specific sample from the sidebar to view this plot."
+                description="Average read depth per target region for the selected sample and gene. Each bar is one exon/target region. Hovering a region that overlaps the selected table row also shows its per-caller CN labels, classification, and dosage-sensitivity. Toggle 'Cohort avg' to overlay a transparent red line showing the average depth per region across every loaded sample. 'Normalize to cohort (Z-score)' instead plots each region as standard deviations from that region's cohort mean, so 0 = cohort average. Select a specific sample from the sidebar to view this plot."
               />
               <DownloadButton title="Download chart image" @click="downloadCoverageChart" />
             </div>
