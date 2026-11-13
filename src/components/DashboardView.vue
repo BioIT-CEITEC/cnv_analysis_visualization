@@ -281,8 +281,8 @@ function onTableNavigate(targets) {
                 file="all_samples_smoothed.tsv"
                 :columns="['BED_gene_name','type']"
                 :description="isCohortView
-                  ? `Horizontal stacked bar of the 15 most frequently affected genes across every sample in the loaded dataset, split into DEL (red) and DUP (blue) call counts.`
-                  : `Horizontal stacked bar of the 15 most frequently affected genes within the selected sample, split into DEL (red) and DUP (blue) call counts.`"
+                  ? `Horizontal stacked bar of the 15 most frequently affected genes across every sample in the loaded dataset, split into DEL (red) and DUP (blue). Each bar counts affected samples: multiple calls in the same gene and sample are counted once.`
+                  : `Horizontal stacked bar of the 15 most frequently affected genes within the selected sample, split into DEL (red) and DUP (blue). Multiple calls in the same gene are counted once.`"
               />
               <DownloadButton title="Download chart image" @click="downloadTopGenesChart" />
             </div>

@@ -1,7 +1,8 @@
 <!--
   Top Affected Genes — horizontal stacked bar of the 15 most frequently affected genes
-  in the current view, split into DEL (red) vs DUP (blue) call counts. Shown both for a
-  single selected sample and, when "All (cohort)" is selected, across every sample.
+  in the current view, split into DEL (red) vs DUP (blue). Each gene counts once per sample
+  (not once per call). Shown both for a single selected sample and, when "All (cohort)"
+  is selected, across every sample.
 -->
 <script setup>
 import { computed, ref } from 'vue'
@@ -14,18 +15,23 @@ defineExpose({ chartRef })
 
 const TOP_N = 15
 
+// Counts are per sample, not per call: several calls of the same type in the same gene and
+// sample (e.g. two adjacent RB1 deletions) count once, so each bar = number of affected samples.
 const topGenes = computed(() => {
-  const counts = {} // gene -> { del, dup, samples: Set }
+  const counts = {} // gene -> { del: Set, dup: Set, samples: Set } (sets of sample IDs)
   for (const row of props.data) {
-    const gene = row.gene
-    if (!gene) continue
-    const bucket = counts[gene] || (counts[gene] = { del: 0, dup: 0, samples: new Set() })
-    if (row.consensus_type === 'DEL') bucket.del++
-    else if (row.consensus_type === 'DUP') bucket.dup++
-    if (row.sample) bucket.samples.add(row.sample)
+    if (!row.gene) continue
+    const sample = row.sample || ''
+    // A call spanning several genes ("A, B") affects each of them
+    for (const gene of row.gene.split(',').map(g => g.trim()).filter(Boolean)) {
+      const bucket = counts[gene] || (counts[gene] = { del: new Set(), dup: new Set(), samples: new Set() })
+      if (row.consensus_type === 'DEL') bucket.del.add(sample)
+      else if (row.consensus_type === 'DUP') bucket.dup.add(sample)
+      if (sample) bucket.samples.add(sample)
+    }
   }
   return Object.entries(counts)
-    .map(([gene, c]) => ({ gene, del: c.del, dup: c.dup, total: c.del + c.dup, samples: [...c.samples].sort() }))
+    .map(([gene, c]) => ({ gene, del: c.del.size, dup: c.dup.size, total: c.del.size + c.dup.size, samples: [...c.samples].sort() }))
     .sort((a, b) => b.total - a.total)
     .slice(0, TOP_N)
     .reverse() // highest count renders at the top of the horizontal chart
